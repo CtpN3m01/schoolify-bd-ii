@@ -34,7 +34,7 @@ export default function RootLayout({
 }>) {
   const pathname = usePathname();
   const router = useRouter();
-  const isLoginPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
+  const isLoginPage = pathname === "/auth/login" || pathname === "/auth/register" || pathname === "/auth/forgot-password";
 
   return (
     <html lang="es">
@@ -68,7 +68,7 @@ export default function RootLayout({
                   <SidebarMenuItem>
                     <SidebarMenuButton 
                       tooltip="Principal" 
-                      onClick={() => router.push('/principal')}
+                      onClick={() => router.push('/menu/principal')}
                     >
                       <HomeIcon />
                       <span>Principal</span>
@@ -78,7 +78,7 @@ export default function RootLayout({
                   <SidebarMenuItem>
                     <SidebarMenuButton 
                       tooltip="Buscar"
-                      onClick={() => router.push('/buscar')}
+                      onClick={() => router.push('/menu/buscar')}
                     >
                       <Search />
                       <span>Buscar</span>
@@ -88,7 +88,7 @@ export default function RootLayout({
                   <SidebarMenuItem>
                     <SidebarMenuButton 
                       tooltip="Amigos"
-                      onClick={() => router.push('/amigos')}
+                      onClick={() => router.push('/menu/amigos')}
                     >
                       <UsersIcon />
                       <span>Amigos</span>
@@ -98,7 +98,7 @@ export default function RootLayout({
                   <SidebarMenuItem>
                     <SidebarMenuButton 
                       tooltip="Chats"
-                      onClick={() => router.push('/chats')}
+                      onClick={() => router.push('/menu/chats')}
                     >
                       <MessageSquareText />
                       <span>Chats</span>
@@ -108,7 +108,7 @@ export default function RootLayout({
                   <SidebarMenuItem>
                     <SidebarMenuButton 
                       tooltip="Perfil"
-                      onClick={() => router.push('/perfil')}
+                      onClick={() => router.push('/menu/perfil')}
                     >
                       <UserIcon />
                       <span>Perfil</span>
