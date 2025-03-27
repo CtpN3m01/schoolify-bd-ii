@@ -15,7 +15,13 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { HomeIcon, Search, UsersIcon, GraduationCapIcon, UserIcon, MessageSquareText } from "lucide-react";
+import { HomeIcon, Search, UsersIcon, GraduationCapIcon, UserIcon, MessageSquareText, User2, ChevronUp } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -119,10 +125,30 @@ export default function RootLayout({
               </SidebarContent>
 
               <SidebarFooter>
-                <div className="px-2 text-xs text-muted-foreground">
-                  Schoolify v1.0.0
-                </div>
-              </SidebarFooter>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <SidebarMenuButton>
+                        <User2 /> Username
+                        <ChevronUp className="ml-auto" />
+                      </SidebarMenuButton>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      side="top"
+                      className="w-[--radix-popper-anchor-width]"
+                    >
+                      <DropdownMenuItem>
+                        <span>Perfil</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem>
+                        <span>Cerrar Sesión</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarFooter>
             </Sidebar>
 
             <SidebarInset>
