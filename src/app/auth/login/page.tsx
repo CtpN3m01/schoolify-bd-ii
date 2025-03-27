@@ -31,6 +31,9 @@ export default function Login() {
           <label className="block text-sm font-medium text-muted-foreground">Contraseña</label>
           <Input type="password" placeholder="password" className="w-full" />
         </div>
+        <p className="text-sm text-muted-foreground text-right">
+          <a href="/auth/forgot-password" className="underline">¿Olvidaste tu contraseña?</a>
+        </p>
         <Button className="w-full">Continuar</Button>
         <div className="relative">
           <Separator className="my-4" />
