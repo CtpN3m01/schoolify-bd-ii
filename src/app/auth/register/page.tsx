@@ -1,14 +1,8 @@
-"use client";
-
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Separator } from '@/components/ui/separator';
 import { GraduationCapIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
 
-export default function Login() {
-  const router = useRouter();
-
+export default function Register() {
   return (
     <div className="grid grid-rows-[auto_auto_auto] items-center justify-items-center min-h-screen p-8 pb-20 gap-2 sm:p-20 font-[family-name:var(--font-geist-sans)]">
       <div className="flex flex-col items-center w-full max-w-sm">
@@ -17,7 +11,7 @@ export default function Login() {
           <span className="text-4xl font-bold">Schoolify</span>
         </div>
         <div className="text-center mt-4">
-          <h2 className="text-3xl font-bold">Inicia Sesión</h2> 
+          <h2 className="text-3xl font-bold">Crea una cuenta</h2> 
           <p className="text-muted-foreground">Ingresa con tu email y contraseña</p>
         </div>
       </div>
@@ -32,13 +26,9 @@ export default function Login() {
           <Input type="password" placeholder="password" className="w-full" />
         </div>
         <Button className="w-full">Continuar</Button>
-        <div className="relative">
-          <Separator className="my-4" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="bg-background px-2 text-muted-foreground text-sm">o</span>
-          </div>
-        </div>
-        <Button variant="outline" className="w-full" onClick={() => router.push('/auth/register')}>Registrarme</Button>
+        <p className="text-sm text-muted-foreground text-center">
+          <a href="/auth/login" className="underline">Volver a login</a>
+        </p>
       </div>
 
       <p className="text-sm text-muted-foreground text-center">
