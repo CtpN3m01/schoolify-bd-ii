@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationPrevious, PaginationNext } from "@/components/ui/pagination";
 import { Search } from "lucide-react";
@@ -110,9 +111,11 @@ export default function Principal() {
             >
               <CardHeader>
                 <div className="overflow-hidden rounded-t-lg">
-                  <img
+                  <Image
                     src={curso.imagenUrl}
                     alt={curso.titulo}
+                    width={400}
+                    height={192}
                     className="w-full h-48 object-contain bg-gray-100 p-4 transition-transform duration-300 group-hover:scale-105"
                   />
                 </div>
