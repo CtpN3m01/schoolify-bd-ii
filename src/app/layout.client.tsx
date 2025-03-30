@@ -41,6 +41,7 @@ export default function RootLayout({
   const pathname = usePathname();
   const router = useRouter();
   const isLoginPage = pathname === "/auth/login" || pathname === "/auth/register" || pathname === "/auth/forgot-password";
+  const isChatsPage = pathname === "/menu/chats";
 
   return (
     <html lang="es">
@@ -152,15 +153,23 @@ export default function RootLayout({
             </Sidebar>
 
             <SidebarInset>
-              <div className="relative flex min-h-screen flex-col">
-                <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-6">
-                  <SidebarTrigger />
-                  <div className="flex-1" />
-                </header>
-                <main className="flex-1 p-6">
+              {isChatsPage ? (
+                // Render chats page without additional wrappers to avoid scroll
+                <div className="h-screen overflow-hidden">
                   {children}
-                </main>
-              </div>
+                </div>
+              ) : (
+                // Normal layout for other pages
+                <div className="relative flex min-h-screen flex-col">
+                  <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-6">
+                    <SidebarTrigger />
+                    <div className="flex-1" />
+                  </header>
+                  <main className="flex-1 p-6">
+                    {children}
+                  </main>
+                </div>
+              )}
             </SidebarInset>
           </SidebarProvider>
         )}
