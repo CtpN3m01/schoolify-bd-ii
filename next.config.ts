@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  images: {
+    domains: ["i.pravatar.cc"], // Permitir imágenes desde este dominio
+  },
 };
 
 export default nextConfig;
