@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import EmojiPicker from 'emoji-picker-react';
+import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 
 // Definición de interfaces para TypeScript
 interface Message {
@@ -35,7 +35,8 @@ export default function Chat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   
-  const [contacts, setContacts] = useState<Contact[]>([
+  // Usamos solo la constante contacts para leer, ya que no estamos modificando los contactos en esta página
+  const [contacts] = useState<Contact[]>([
     { id: 1, name: 'Ana García', avatar: '👩‍🎓', status: 'online', unread: 2 },
     { id: 2, name: 'Carlos Rodríguez', avatar: '👨‍💻', status: 'offline', unread: 0 },
     { id: 3, name: 'Laura Martínez', avatar: '👩‍🔬', status: 'online', unread: 5 },
@@ -104,7 +105,7 @@ export default function Chat() {
     }
   };
 
-  const handleEmojiClick = (emojiData: any) => {
+  const handleEmojiClick = (emojiData: EmojiClickData) => {
     setInputMessage(prev => prev + emojiData.emoji);
     setShowEmojiPicker(false);
   };
@@ -128,10 +129,13 @@ export default function Chat() {
     }
   };
 
+  // Extraer el valor dependencia para useEffect
+  const currentChatMessages = chats[activeChat];
+
   useEffect(() => {
     // Scroll to bottom cuando cambian los mensajes
     scrollToBottom();
-  }, [chats[activeChat]]);
+  }, [currentChatMessages]);
 
   useEffect(() => {
     // Añadir evento de scroll al contenedor de mensajes
