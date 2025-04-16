@@ -17,19 +17,19 @@ async function connectMongoDB() {
   try {
     // Connect the client to the server
     await client.connect();
-    database = client.db("basesPrueba");
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Connected successfully to MongoDB");
-    return database;
+    return client;
   } catch (error) {
     console.error("Error connecting to MongoDB:", error);
     throw error;
   }
 }
 
-// Exportamos la base de datos y la función para conectar
+// Exportamos el cliente, la base de datos y la función para conectar
 module.exports = {
+  client,
   database,
   connectMongoDB
 };
