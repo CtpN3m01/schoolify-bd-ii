@@ -15,13 +15,15 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { HomeIcon, Search, UsersIcon, GraduationCapIcon, UserIcon, MessageSquareText, User2, ChevronUp } from "lucide-react";
+import { HomeIcon, Search, UsersIcon, GraduationCapIcon, UserIcon, MessageSquareText, User2, ChevronUp, ChevronDown } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -120,6 +122,49 @@ export default function RootLayout({
                       <UserIcon />
                       <span>Perfil</span>
                     </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  <Separator className="my-2" />
+
+                  <SidebarMenuItem>
+                    <Collapsible defaultOpen className="group/collapsible">
+                      <SidebarMenuItem>
+                        <CollapsibleTrigger asChild>
+                          <SidebarMenuButton tooltip="Portal Docente">
+                            <div className="flex items-center w-full justify-between">
+                              <div className="flex items-center">
+                                <GraduationCapIcon />
+                                <span>Portal Docente</span>
+                              </div>
+                              <div className="ml-auto">
+                                <ChevronDown className="w-4 h-4 group-data-[state=open]/collapsible:hidden" />
+                                <ChevronUp className="w-4 h-4 group-data-[state=closed]/collapsible:hidden" />
+                              </div>
+                            </div>
+                          </SidebarMenuButton>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <SidebarMenu>
+                            <SidebarMenuItem>
+                              <SidebarMenuButton
+                                tooltip="Cursos"
+                                onClick={() => router.push('/menu/portal-docente/cursos')}
+                              >
+                                <span>Cursos</span>
+                              </SidebarMenuButton>
+                            </SidebarMenuItem>
+                            <SidebarMenuItem>
+                              <SidebarMenuButton
+                                tooltip="Evaluaciones"
+                                onClick={() => router.push('/menu/portal-docente/evaluaciones')}
+                              >
+                                <span>Evaluaciones</span>
+                              </SidebarMenuButton>
+                            </SidebarMenuItem>
+                          </SidebarMenu>
+                        </CollapsibleContent>
+                      </SidebarMenuItem>
+                    </Collapsible>
                   </SidebarMenuItem>
 
                 </SidebarMenu>
