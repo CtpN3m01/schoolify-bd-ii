@@ -11,17 +11,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     // Connect to MongoDB
     await connectMongoDB();
-    const database = client.db("basesPrueba");
-    const collection = database.collection("basesPruebaCollection");
+    const database = client.db("ProyectoIBasesII");
+    const collection = database.collection("Cursos");
 
     // Find all documents in the collection
-    const documents = await collection.find({}).toArray();
+    const cursos = await collection.find({}).toArray();
 
     // Return the documents
     return res.status(200).json({ 
-      success: true, 
-      data: documents,
-      count: documents.length 
+      success: true,
+      data: cursos,
+      count: cursos.length
     });
 
   } catch (error) {
