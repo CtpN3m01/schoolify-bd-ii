@@ -72,6 +72,12 @@ export default function Perfil() {
     }
   };
 
+  const formatFecha = (fecha: string) => {
+    if (!fecha) return "-";
+    const [year, month, day] = fecha.split("-");
+    return `${day}/${month}/${year}`;
+  };
+
   return (
     <div className="flex flex-col min-h-screen px-4 py-8 sm:px-20 sm:py-20 font-sans bg-gray-50">
       {/* Card principal de perfil */}
@@ -182,7 +188,7 @@ export default function Perfil() {
             </div>
             <div>
               <div className="text-gray-500 text-xs uppercase mb-1">Fecha de nacimiento</div>
-              <div className="text-lg font-semibold">{user.fechaNacimiento ? new Date(user.fechaNacimiento).toLocaleDateString() : "-"}</div>
+              <div className="text-lg font-semibold">{user.fechaNacimiento ? formatFecha(user.fechaNacimiento.slice(0, 10)) : "-"}</div>
             </div>
           </div>
         </div>
