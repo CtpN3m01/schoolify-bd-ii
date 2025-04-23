@@ -206,7 +206,7 @@ export default function RootLayout({
                       side="top"
                       className="w-[--radix-popper-anchor-width]"
                     >
-                      <DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => router.push('/menu/perfil')}>
                         <span>Perfil</span>
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={handleLogout}>
