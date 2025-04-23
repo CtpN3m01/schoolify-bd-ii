@@ -142,46 +142,23 @@ export default function RootLayout({
                   <Separator className="my-2" />
 
                   <SidebarMenuItem>
-                    <Collapsible defaultOpen className="group/collapsible">
-                      <SidebarMenuItem>
-                        <CollapsibleTrigger asChild>
-                          <SidebarMenuButton tooltip="Portal Docente">
-                            <div className="flex items-center w-full justify-between">
-                              <div className="flex items-center">
-                                <GraduationCapIcon />
-                                <span>Portal Docente</span>
-                              </div>
-                              <div className="ml-auto">
-                                <ChevronDown className="w-4 h-4 group-data-[state=open]/collapsible:hidden" />
-                                <ChevronUp className="w-4 h-4 group-data-[state=closed]/collapsible:hidden" />
-                              </div>
-                            </div>
-                          </SidebarMenuButton>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <SidebarMenu>
-                            <SidebarMenuItem>
-                              <SidebarMenuButton
-                                tooltip="Cursos"
-                                onClick={() => router.push('/menu/portal-docente/cursos')}
-                              >
-                                <span>Cursos</span>
-                              </SidebarMenuButton>
-                            </SidebarMenuItem>
-                            <SidebarMenuItem>
-                              <SidebarMenuButton
-                                tooltip="Evaluaciones"
-                                onClick={() => router.push('/menu/portal-docente/evaluaciones')}
-                              >
-                                <span>Evaluaciones</span>
-                              </SidebarMenuButton>
-                            </SidebarMenuItem>
-                          </SidebarMenu>
-                        </CollapsibleContent>
-                      </SidebarMenuItem>
-                    </Collapsible>
+                    <SidebarMenuButton
+                      tooltip="Portal Docente"
+                      onClick={() => router.push('/menu/portal-docente/cursos')}
+                    >
+                      <GraduationCapIcon />
+                      <span>Portal Docente</span>
+                    </SidebarMenuButton>
                   </SidebarMenuItem>
-
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      tooltip="Evaluaciones"
+                      onClick={() => router.push('/menu/portal-docente/evaluaciones')}
+                    >
+                      <GraduationCapIcon />
+                      <span>Evaluaciones</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarContent>
 
@@ -222,7 +199,7 @@ export default function RootLayout({
             <SidebarInset>
               {isChatsPage ? (
                 // Render chats page without additional wrappers to avoid scroll
-                <div className="h-screen overflow-hidden">
+                <div className="h-screen">
                   {children}
                 </div>
               ) : (

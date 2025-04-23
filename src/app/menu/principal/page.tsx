@@ -8,11 +8,17 @@ import { Input } from "@/components/ui/input";
 import { useEffect, useState } from "react";
 
 // Tipo para los cursos
-type Curso = {
-  id: string;
-  titulo: string;
-  imagenUrl: string;
-};
+// Adaptado a los datos reales de la base
+interface Curso {
+  _id: string;
+  nombreCurso: string;
+  descripcion: string;
+  fechaInicio: string;
+  fechaFin: string;
+  foto?: string;
+  estado?: string;
+  nombreUsuarioDocente: string;
+}
 
 export default function Principal() {
   const [cursos, setCursos] = useState<Curso[]>([]);
@@ -21,51 +27,25 @@ export default function Principal() {
   const [currentPage, setCurrentPage] = useState(1);
   const cursosPerPage = 6;
 
-  // Función para cargar los cursos desde la base de datos
+  // Cargar cursos reales desde la API
   useEffect(() => {
     const fetchCursos = async () => {
       try {
-        // Aquí iría la llamada a la api para obtener los cursos
-        // const response = await fetch('/api/cursos');
-        // Simulamos datos de ejemplo
-        const data: Curso[] = [
-          { id: '1', titulo: 'Python de Cero a Experto', imagenUrl: '/assets/TempCursosImg/PythonDeCeroAExperto.jpg' },
-          { id: '2', titulo: 'JavaScript Moderno', imagenUrl: '/assets/TempCursosImg/JavaScriptModerno.jpg' },
-          { id: '3', titulo: 'React Avanzado', imagenUrl: '/assets/TempCursosImg/ReactAvanzado.jpg' },
-          { id: '4', titulo: 'Curso de Node.js', imagenUrl: '/assets/TempCursosImg/NodeJS.jpg' },
-          { id: '5', titulo: 'Curso de TypeScript', imagenUrl: '/assets/TempCursosImg/TypeScript.jpg' },
-          { id: '6', titulo: 'Curso de Angular', imagenUrl: '/assets/TempCursosImg/Angular.jpg' },
-          { id: '7', titulo: 'Curso de Vue.js', imagenUrl: '/assets/TempCursosImg/VueJS.jpg' },
-          { id: '8', titulo: 'Curso de Django', imagenUrl: '/assets/TempCursosImg/Django.jpg' },
-          { id: '9', titulo: 'Curso de Flask', imagenUrl: '/assets/TempCursosImg/Flask.jpg' },
-          { id: '10', titulo: 'Curso de Java', imagenUrl: '/assets/TempCursosImg/Java.jpg' },
-          { id: '11', titulo: 'Curso de C#', imagenUrl: '/assets/TempCursosImg/CSharp.jpg' },
-          { id: '12', titulo: 'Curso de PHP', imagenUrl: '/assets/TempCursosImg/PHP.jpg' },
-          { id: '13', titulo: 'Curso de Ruby on Rails', imagenUrl: '/assets/TempCursosImg/RubyOnRails.jpg' },
-          { id: '14', titulo: 'Curso de Swift', imagenUrl: '/assets/TempCursosImg/Swift.jpg' },
-          { id: '15', titulo: 'Curso de Kotlin', imagenUrl: '/assets/TempCursosImg/Kotlin.jpg' },
-          { id: '16', titulo: 'Curso de Go', imagenUrl: '/assets/TempCursosImg/Go.jpg' },
-          { id: '17', titulo: 'Curso de Rust', imagenUrl: '/assets/TempCursosImg/Rust.jpg' },
-          { id: '18', titulo: 'Curso de SQL', imagenUrl: '/assets/TempCursosImg/SQL.jpg' },
-        ];
-        
-        // Simula un pequeño retraso como en una petición real
-        setTimeout(() => {
-          setCursos(data);
-          setLoading(false);
-        }, 500);
+        const response = await fetch('/api/mongoDB/cursos/get_cursos');
+        const result = await response.json();
+        setCursos(result.cursos || []);
+        setLoading(false);
       } catch (error) {
         console.error('Error al cargar los cursos:', error);
         setLoading(false);
       }
     };
-
     fetchCursos();
   }, []);
 
   // Filtrar cursos según término de búsqueda
   const cursosFiltrados = cursos.filter(curso =>
-    curso.titulo.toLowerCase().includes(searchTerm.toLowerCase())
+    curso.nombreCurso.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   // Cálculo para la paginación
@@ -79,12 +59,13 @@ export default function Principal() {
     setCurrentPage(pageNumber);
   };
 
+  // Renderizado de los cursos
   return (
     <div className="grid grid-rows-[auto_1fr_auto] items-start min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
       <header className="flex justify-between items-center">
         <div className="text-left">
-          <h1 className="text-2xl font-bold">Mis Cursos</h1>
-          <p className="text-muted-foreground">Explora tus cursos</p>
+          <h1 className="text-2xl font-bold">Cursos</h1>
+          <p className="text-muted-foreground">Explora los cursos disponibles</p>
         </div>
         <div className="relative w-64">
           <Input 
@@ -97,42 +78,30 @@ export default function Principal() {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         </div>
       </header>
-
-      <main className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 items-start justify-start">
+      <main className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8">
         {loading ? (
-          <div className="col-span-full text-center py-10">
-            <p>Cargando cursos...</p>
-          </div>
-        ) : cursosFiltrados.length > 0 ? (
+          <div className="col-span-full text-center">Cargando cursos...</div>
+        ) : cursosFiltrados.length === 0 ? (
+          <div className="col-span-full text-center">No hay cursos disponibles.</div>
+        ) : (
           currentCursos.map((curso) => (
-            <Card 
-              key={curso.id} 
-              className="transition-all duration-300 ease-in-out hover:shadow-lg hover:shadow-primary/20 hover:-translate-y-1 cursor-pointer group rounded-lg border border-gray-200"
-            >
+            <Card key={curso._id} className="h-full flex flex-col">
+              {curso.foto && (
+                <Image src={curso.foto} alt={curso.nombreCurso} width={400} height={200} className="rounded-t-md object-cover h-48 w-full" />
+              )}
               <CardHeader>
-                <div className="overflow-hidden rounded-t-lg">
-                  <Image
-                    src={curso.imagenUrl}
-                    alt={curso.titulo}
-                    width={400}
-                    height={192}
-                    className="w-full h-48 object-contain bg-gray-100 p-4 transition-transform duration-300 group-hover:scale-105"
-                  />
-                </div>
+                <CardTitle>{curso.nombreCurso}</CardTitle>
               </CardHeader>
-              <CardContent>
-                <CardTitle className="group-hover:text-primary transition-colors duration-300 text-center text-lg font-medium">{curso.titulo}</CardTitle>
+              <CardContent className="flex-1 flex flex-col justify-between">
+                <p className="text-sm text-muted-foreground mb-2">{curso.descripcion}</p>
+                <div className="text-xs text-gray-500 mt-auto">
+                  Docente: {curso.nombreUsuarioDocente}
+                </div>
               </CardContent>
             </Card>
           ))
-        ) : (
-          <div className="col-span-full text-center py-10">
-            <h3 className="text-xl font-semibold mb-2">Aún no eres miembro de ningún curso</h3>
-            <p className="text-muted-foreground">Buscá un curso de tu interés e inscríbete</p>
-          </div>
         )}
       </main>
-
       {cursosFiltrados.length > 0 && (
         <footer className="w-full flex justify-center">
           <Pagination>
