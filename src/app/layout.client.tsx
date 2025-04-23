@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { useEffect, useState } from "react";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -44,6 +46,19 @@ export default function RootLayout({
   const router = useRouter();
   const isLoginPage = pathname === "/auth/login" || pathname === "/auth/register" || pathname === "/auth/forgot-password";
   const isChatsPage = pathname === "/menu/chats";
+  const [user, setUser] = useState<{ nombreUsuario: string; foto?: string } | null>(null);
+
+  useEffect(() => {
+    // Obtener el usuario autenticado
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => setUser(data.user));
+  }, []);
+
+  const handleLogout = async () => {
+    await fetch("/api/mongoDB/auth/logout", { method: "POST" });
+    router.push("/auth/login");
+  };
 
   return (
     <html lang="es">
@@ -176,7 +191,14 @@ export default function RootLayout({
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <SidebarMenuButton>
-                        <User2 /> Username
+                        <Avatar className="mr-2">
+                          {user?.foto ? (
+                            <AvatarImage src={user.foto} alt={user.nombreUsuario} />
+                          ) : (
+                            <AvatarFallback>{user?.nombreUsuario?.[0]?.toUpperCase() || "U"}</AvatarFallback>
+                          )}
+                        </Avatar>
+                        {user?.nombreUsuario || "Usuario"}
                         <ChevronUp className="ml-auto" />
                       </SidebarMenuButton>
                     </DropdownMenuTrigger>
@@ -187,7 +209,7 @@ export default function RootLayout({
                       <DropdownMenuItem>
                         <span>Perfil</span>
                       </DropdownMenuItem>
-                      <DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleLogout}>
                         <span>Cerrar Sesión</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
