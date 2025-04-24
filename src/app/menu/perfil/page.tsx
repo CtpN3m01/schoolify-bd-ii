@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
   Dialog,
@@ -8,6 +8,7 @@ import {
   DialogClose,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { CldUploadWidget } from 'next-cloudinary';
 
 export default function Perfil() {
   const [user, setUser] = useState<any>(null);
@@ -16,6 +17,12 @@ export default function Perfil() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [showFileInput, setShowFileInput] = useState(false);
+  const [imageUrl, setImageUrl] = useState('');
+  const avatarRef = useRef<HTMLDivElement>(null);
+  const [hovered, setHovered] = useState(false);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -38,11 +45,29 @@ export default function Perfil() {
     setEditData({ ...editData, [e.target.name]: e.target.value });
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      setPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleShowFileInput = () => {
+    setShowFileInput(true);
+    setTimeout(() => {
+      const input = document.getElementById('foto') as HTMLInputElement;
+      if (input) input.click();
+    }, 100);
+  };
+
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setSuccess("");
     setError("");
+    // Usar la URL de Cloudinary (preview) si existe
+    let fotoUrl = preview || editData.foto;
     try {
       const res = await fetch("/api/mongoDB/auth/editarUsuario", {
         method: "PUT",
@@ -54,13 +79,14 @@ export default function Perfil() {
           apellido1: editData.apellido1,
           apellido2: editData.apellido2,
           fechaNacimiento: editData.fechaNacimiento,
-          foto: editData.foto,
+          foto: fotoUrl,
         }),
       });
       if (res.ok) {
         setSuccess("Perfil actualizado correctamente");
-        setUser({ ...user, ...editData });
+        setUser({ ...user, ...editData, foto: fotoUrl });
         setOpen(false);
+        setPreview(null);
       } else {
         const data = await res.json();
         setError(data.message || "Error al actualizar");
@@ -78,13 +104,46 @@ export default function Perfil() {
     return `${day}/${month}/${year}`;
   };
 
+  const handleCloudinaryUpload = (result: any) => {
+    console.log('Cloudinary upload result:', result);
+    if (result?.event === "success" && result.info?.secure_url) {
+      setPreview(result.info.secure_url);
+      setSelectedFile(null);
+      setEditData((prev: any) => ({ ...prev, foto: result.info.secure_url }));
+      // Actualiza la foto de perfil directamente y refresca el usuario
+      fetch("/api/mongoDB/auth/editarUsuario", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nombreUsuario: user.nombreUsuario,
+          nuevoNombreUsuario: user.nombreUsuario,
+          nombre: user.nombre,
+          apellido1: user.apellido1,
+          apellido2: user.apellido2,
+          fechaNacimiento: user.fechaNacimiento,
+          foto: result.info.secure_url,
+        }),
+      })
+        .then((res) => res.ok ? res.json() : null)
+        .then(() => {
+          setUser((prev: any) => ({ ...prev, foto: result.info.secure_url }));
+          setPreview(null);
+        });
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-screen px-4 py-8 sm:px-20 sm:py-20 font-sans bg-gray-50">
       {/* Card principal de perfil */}
       <section className="max-w-3xl w-full mx-auto bg-white rounded-2xl shadow-md p-8 flex flex-col sm:flex-row gap-8 mb-16">
         {/* Avatar y acciones */}
         <div className="flex flex-col items-center sm:items-start">
-          <div className="w-32 h-32 rounded-full overflow-hidden mb-4 border-4 border-gray-200 flex items-center justify-center">
+          <div
+            className="w-32 h-32 rounded-full overflow-hidden mb-4 border-4 border-gray-200 flex items-center justify-center relative group"
+            ref={avatarRef}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+          >
             <Avatar className="w-32 h-32">
               {user.foto ? (
                 <AvatarImage src={user.foto} alt={user.nombreUsuario} />
@@ -92,6 +151,20 @@ export default function Perfil() {
                 <AvatarFallback>{user.nombreUsuario?.[0]?.toUpperCase() || "U"}</AvatarFallback>
               )}
             </Avatar>
+            <CldUploadWidget
+              uploadPreset="cloudinary_app"
+              onSuccess={handleCloudinaryUpload}
+            >
+              {({ open }) => (
+                hovered && (
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-black/60 text-white flex items-center justify-center text-xs font-semibold transition rounded-full"
+                    onClick={() => open()}
+                  >Cambiar foto de perfil</button>
+                )
+              )}
+            </CldUploadWidget>
           </div>
           <span className="text-gray-700 text-base font-medium mb-1">@{user.nombreUsuario}</span>
           <span className="text-gray-500 text-sm mb-4">{user.amigos?.length ? `${user.amigos.length} Amigos` : "Sin amigos"}</span>
@@ -101,79 +174,91 @@ export default function Perfil() {
           >
             Editar perfil
           </button>
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog
+  open={open}
+  onOpenChange={(v) => {
+    // Solo cerrar el modal si el usuario realmente lo cierra
+    setOpen(v);
+  }}
+  modal={false}
+>
             <DialogContent>
               <DialogTitle>Editar perfil</DialogTitle>
-              <form onSubmit={handleEditSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs mb-1">Nombre de usuario</label>
+              <form onSubmit={handleEditSubmit} className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="nombreUsuario" className="font-medium">Nombre de usuario</label>
                   <input
+                    type="text"
+                    id="nombreUsuario"
                     name="nombreUsuario"
-                    value={editData?.nombreUsuario || ""}
+                    value={editData?.nombreUsuario || ''}
                     onChange={handleEditChange}
-                    className="w-full border rounded px-2 py-1"
+                    placeholder="Nombre de usuario"
+                    className="border rounded px-2 py-1"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs mb-1">Nombre</label>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="nombre" className="font-medium">Nombre</label>
                   <input
+                    type="text"
+                    id="nombre"
                     name="nombre"
-                    value={editData?.nombre || ""}
+                    value={editData?.nombre || ''}
                     onChange={handleEditChange}
-                    className="w-full border rounded px-2 py-1"
+                    placeholder="Nombre"
+                    className="border rounded px-2 py-1"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs mb-1">Primer Apellido</label>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="apellido1" className="font-medium">Primer apellido</label>
                   <input
+                    type="text"
+                    id="apellido1"
                     name="apellido1"
-                    value={editData?.apellido1 || ""}
+                    value={editData?.apellido1 || ''}
                     onChange={handleEditChange}
-                    className="w-full border rounded px-2 py-1"
+                    placeholder="Primer apellido"
+                    className="border rounded px-2 py-1"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs mb-1">Segundo Apellido</label>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="apellido2" className="font-medium">Segundo apellido</label>
                   <input
+                    type="text"
+                    id="apellido2"
                     name="apellido2"
-                    value={editData?.apellido2 || ""}
+                    value={editData?.apellido2 || ''}
                     onChange={handleEditChange}
-                    className="w-full border rounded px-2 py-1"
+                    placeholder="Segundo apellido"
+                    className="border rounded px-2 py-1"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs mb-1">Fecha de nacimiento</label>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="fechaNacimiento" className="font-medium">Fecha de nacimiento</label>
                   <input
-                    name="fechaNacimiento"
                     type="date"
-                    value={editData?.fechaNacimiento ? editData.fechaNacimiento.slice(0, 10) : ""}
+                    id="fechaNacimiento"
+                    name="fechaNacimiento"
+                    value={editData?.fechaNacimiento || ''}
                     onChange={handleEditChange}
-                    className="w-full border rounded px-2 py-1"
+                    className="border rounded px-2 py-1"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs mb-1">Foto (URL)</label>
-                  <input
-                    name="foto"
-                    value={editData?.foto || ""}
-                    onChange={handleEditChange}
-                    className="w-full border rounded px-2 py-1"
-                  />
-                </div>
-                {error && <div className="text-red-500 text-xs">{error}</div>}
-                {success && <div className="text-green-600 text-xs">{success}</div>}
-                <div className="flex gap-2 justify-end">
-                  <DialogClose asChild>
-                    <button type="button" className="px-4 py-2 rounded bg-gray-200">Cancelar</button>
-                  </DialogClose>
+                <div className="flex gap-2 justify-end mt-4">
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded bg-muted text-muted-foreground hover:bg-muted/70"
+                    onClick={() => setOpen(false)}
+                    disabled={loading}
+                  >Cancelar</button>
                   <button
                     type="submit"
-                    className="px-4 py-2 rounded bg-black text-white"
+                    className="px-4 py-2 rounded bg-primary text-white hover:bg-primary/90"
                     disabled={loading}
-                  >
-                    {loading ? "Guardando..." : "Guardar"}
-                  </button>
+                  >{loading ? 'Guardando...' : 'Guardar'}</button>
                 </div>
+                {success && <div className="text-green-600 text-sm mt-2">{success}</div>}
+                {error && <div className="text-red-600 text-sm mt-2">{error}</div>}
               </form>
             </DialogContent>
           </Dialog>

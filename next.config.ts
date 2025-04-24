@@ -1,9 +1,15 @@
-import type { NextConfig } from "next";
+// next.config.ts
 
-const nextConfig: NextConfig = {
+// next.config.ts
+
+/** @type {import('next').NextConfig} */
+const nextConfig: import('next').NextConfig = {
   images: {
-    domains: ["i.pravatar.cc", "m.media-amazon.com", "pngimg.com", "media.istockphoto.com"], // Permitir imágenes desde estos dominios
+    domains: ["m.media-amazon.com", "pngimg.com", "media.istockphoto.com"],
+  },
+  // Permitir escuchar en todas las interfaces de red
+  devIndicators: {
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;
