@@ -3,7 +3,7 @@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Search } from "lucide-react"
 import Image from "next/image"
 import { 
@@ -22,6 +22,8 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog"
+import { toast } from "sonner"
 
 // Definición de tipos
 interface Friend {
@@ -43,82 +45,98 @@ interface Suggestion {
   university?: string;
 }
 
-// Mock data para amigos con más información
-const friendsData: Friend[] = [
-  { 
-    id: 1, 
-    name: "Ana García", 
-    avatar: "https://i.pravatar.cc/150?img=1", 
-    status: "En línea",
-    description: "Estudiante de Ingeniería Informática. Me encanta la programación y el diseño web.",
-    university: "Universidad Autónoma"
-  },
-  { 
-    id: 2, 
-    name: "Carlos Rodríguez", 
-    avatar: "https://i.pravatar.cc/150?img=2", 
-    status: "En clase",
-    description: "Estudiando Medicina. Aficionado al deporte y la música.",
-    university: "Universidad Central"
-  },
-  { 
-    id: 3, 
-    name: "María López", 
-    avatar: "https://i.pravatar.cc/150?img=3", 
-    status: "En línea",
-    description: "Apasionada por las matemáticas y la física. Me gusta resolver problemas complejos.",
-    university: "Universidad Tecnológica"
-  },
-]
-
-// Mock data para sugerencias con más información
-const suggestionsData: Suggestion[] = [
-  { 
-    id: 4, 
-    name: "Juan Pérez", 
-    avatar: "https://i.pravatar.cc/150?img=4", 
-    mutualFriends: 5,
-    description: "Estudiante de último año de Arquitectura. Interesado en el diseño sostenible.",
-    university: "Universidad Nacional"
-  },
-  { 
-    id: 5, 
-    name: "Laura Torres", 
-    avatar: "https://i.pravatar.cc/150?img=5", 
-    mutualFriends: 3,
-    description: "Apasionada por la literatura y los idiomas. Actualmente aprendiendo francés.",
-    university: "Universidad de Letras"
-  },
-  { 
-    id: 6, 
-    name: "Miguel Sánchez", 
-    avatar: "https://i.pravatar.cc/150?img=6", 
-    mutualFriends: 2,
-    description: "Estudiante de Biología. Investigador en ciencias ambientales.",
-    university: "Universidad de Ciencias"
-  },
-  { 
-    id: 7, 
-    name: "Sara Martínez", 
-    avatar: "https://i.pravatar.cc/150?img=7", 
-    mutualFriends: 4,
-    description: "Apasionada por el arte digital y la animación 3D.",
-    university: "Universidad de Artes Visuales"
-  },
-]
-
 export default function Amigos() {
   const [searchQuery, setSearchQuery] = useState("");
-  
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [loadingFriends, setLoadingFriends] = useState(false);
+  const [solicitudes, setSolicitudes] = useState<Friend[]>([]);
+  const [loadingSolicitudes, setLoadingSolicitudes] = useState(false);
+  const [searchUsername, setSearchUsername] = useState("");
+  const [searchResult, setSearchResult] = useState<Friend|null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+
+  // Simulación: usuario actual (debería venir de auth)
+  const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') || '' : '';
+
+  // Cargar amigos reales
+  useEffect(() => {
+    if (!currentUserId) return;
+    setLoadingFriends(true);
+    fetch(`/api/neo4jDB/listar-amigos?userId=${currentUserId}`)
+      .then(res => res.json())
+      .then(data => setFriends(data.amigos || []))
+      .finally(() => setLoadingFriends(false));
+  }, [currentUserId]);
+
+  // Cargar solicitudes de amistad recibidas
+  useEffect(() => {
+    if (!currentUserId) return;
+    setLoadingSolicitudes(true);
+    fetch(`/api/neo4jDB/solicitudes-pendientes?userId=${currentUserId}`)
+      .then(res => res.json())
+      .then(data => setSolicitudes(data.solicitudes || []))
+      .finally(() => setLoadingSolicitudes(false));
+  }, [currentUserId]);
+
+  // Sugerencias de amigos
+  useEffect(() => {
+    if (!currentUserId) return;
+    setLoadingSuggestions(true);
+    fetch(`/api/neo4jDB/sugerencias-amigos?userId=${currentUserId}`)
+      .then(res => res.json())
+      .then(data => setSuggestions(data.sugerencias || []))
+      .finally(() => setLoadingSuggestions(false));
+  }, [currentUserId]);
+
+  // Buscar usuario por username
+  const handleSearchUser = async () => {
+    setSearching(true);
+    setSearchError("");
+    setSearchResult(null);
+    try {
+      const res = await fetch(`/api/neo4jDB/buscar-usuario-por-username?username=${searchUsername}&userId=${currentUserId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSearchResult(data);
+      } else {
+        setSearchError("Usuario no encontrado");
+      }
+    } catch {
+      setSearchError("Error buscando usuario");
+    } finally {
+      setSearching(false);
+    }
+  };
+
   // Filtrar amigos basado en la búsqueda
-  const filteredFriends = friendsData.filter(friend => 
+  // Elimina duplicados por id (string o number)
+  const uniqueFriends = Array.from(new Map(friends.map(f => [String(f.id), f])).values());
+  const filteredFriends = uniqueFriends.filter(friend => 
     friend.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
   
   // Filtrar sugerencias basado en la búsqueda
-  const filteredSuggestions = suggestionsData.filter(suggestion => 
+  const filteredSuggestions = suggestions.filter(suggestion => 
     suggestion.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Refrescar amigos y solicitudes tras aceptar/rechazar/agregar
+  // Se pasa como prop a FriendCard
+  const refreshFriendsAndSolicitudes = () => {
+    setLoadingFriends(true);
+    fetch(`/api/neo4jDB/listar-amigos?userId=${currentUserId}`)
+      .then(res => res.json())
+      .then(data => setFriends(data.amigos || []))
+      .finally(() => setLoadingFriends(false));
+    setLoadingSolicitudes(true);
+    fetch(`/api/neo4jDB/solicitudes-pendientes?userId=${currentUserId}`)
+      .then(res => res.json())
+      .then(data => setSolicitudes(data.solicitudes || []))
+      .finally(() => setLoadingSolicitudes(false));
+  };
 
   return (
     <div className="min-h-screen p-4 pb-16 sm:p-6">
@@ -128,6 +146,7 @@ export default function Amigos() {
         <Tabs defaultValue="friends" className="w-full">
           <TabsList className="w-full mb-5 p-1">
             <TabsTrigger value="friends" className="flex-1">Tus amigos</TabsTrigger>
+            <TabsTrigger value="solicitudes" className="flex-1">Solicitudes de amistad</TabsTrigger>
             <TabsTrigger value="suggestions" className="flex-1">Sugerencias</TabsTrigger>
           </TabsList>
           
@@ -146,15 +165,19 @@ export default function Amigos() {
           
           <TabsContent value="friends">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredFriends.length > 0 ? (
+              {loadingFriends ? (
+                <div className="text-center col-span-full py-8 text-muted-foreground">Cargando amigos...</div>
+              ) : filteredFriends.length > 0 ? (
                 filteredFriends.map((friend) => (
                   <FriendCard 
                     key={friend.id}
+                    id={friend.id}
                     name={friend.name}
                     avatar={friend.avatar}
                     status={friend.status}
                     description={friend.description}
                     university={friend.university}
+                    refresh={refreshFriendsAndSolicitudes}
                   />
                 ))
               ) : (
@@ -166,25 +189,58 @@ export default function Amigos() {
               )}
             </div>
           </TabsContent>
-          
-          <TabsContent value="suggestions">
+          <TabsContent value="solicitudes">
+            <div className="mb-4">
+              <Input
+                type="search"
+                placeholder="Buscar usuario por username..."
+                value={searchUsername}
+                onChange={e => setSearchUsername(e.target.value)}
+                className="w-full mb-2"
+                onKeyDown={e => { if (e.key === 'Enter') handleSearchUser(); }}
+              />
+              <button
+                className="mb-4 px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-60"
+                onClick={handleSearchUser}
+                disabled={searching || !searchUsername}
+              >Buscar usuario</button>
+              {searching && <div className="text-sm text-muted-foreground">Buscando...</div>}
+              {searchError && <div className="text-sm text-destructive">{searchError}</div>}
+              {searchResult && (
+                <div className="mt-2">
+                  <FriendCard
+                    name={searchResult.name}
+                    avatar={searchResult.avatar}
+                    status={searchResult.status}
+                    description={searchResult.description}
+                    university={searchResult.university}
+                    id={searchResult.id}
+                    showAddFriend
+                    refresh={refreshFriendsAndSolicitudes}
+                  />
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredSuggestions.length > 0 ? (
-                filteredSuggestions.map((suggestion) => (
-                  <SuggestionCard 
-                    key={suggestion.id}
-                    name={suggestion.name}
-                    avatar={suggestion.avatar}
-                    mutualFriends={suggestion.mutualFriends}
-                    description={suggestion.description}
-                    university={suggestion.university}
+              {loadingSolicitudes ? (
+                <div className="text-center col-span-full py-8 text-muted-foreground">Cargando solicitudes...</div>
+              ) : solicitudes.length > 0 ? (
+                solicitudes.map((sol) => (
+                  <FriendCard
+                    key={sol.id}
+                    name={sol.name}
+                    avatar={sol.avatar}
+                    status={sol.status}
+                    description={sol.description}
+                    university={sol.university}
+                    id={sol.id}
+                    showAcceptReject
+                    refresh={refreshFriendsAndSolicitudes}
                   />
                 ))
               ) : (
                 <div className="text-left p-6 border rounded-lg bg-muted/30 col-span-full">
-                  <p className="text-muted-foreground">
-                    {searchQuery ? "No se encontraron sugerencias con ese nombre." : "No hay sugerencias disponibles."}
-                  </p>
+                  <p className="text-muted-foreground">No tienes solicitudes pendientes.</p>
                 </div>
               )}
             </div>
@@ -197,14 +253,70 @@ export default function Amigos() {
 
 // Componente para mostrar un amigo
 interface FriendCardProps {
+  id: number | string;
   name: string;
   avatar: string;
   status: string;
   description?: string;
   university?: string;
+  showAddFriend?: boolean;
+  showAcceptReject?: boolean;
+  refresh?: () => void;
 }
 
-function FriendCard({ name, avatar, status, description, university }: FriendCardProps) {
+function FriendCard({ id, name, avatar, status, description, university, showAddFriend, showAcceptReject, refresh }: FriendCardProps) {
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [accepted, setAccepted] = useState(false);
+  const [rejected, setRejected] = useState(false);
+  const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') || '' : '';
+
+  const handleSendRequest = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/neo4jDB/enviar-solicitud-amistad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromUserId: currentUserId, toUserId: id })
+      });
+      if (res.ok) setSent(true);
+      if (refresh) refresh();
+    } finally {
+      setLoading(false);
+    }
+  };
+  const handleAccept = async () => {
+    setLoading(true);
+    try {
+      await fetch('/api/neo4jDB/aceptar-solicitud-amistad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromUserId: id, toUserId: currentUserId })
+      });
+      setAccepted(true);
+      if (refresh) refresh();
+    } finally {
+      setLoading(false);
+    }
+  };
+  const handleReject = async () => {
+    setLoading(true);
+    try {
+      await fetch('/api/neo4jDB/rechazar-solicitud-amistad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromUserId: id, toUserId: currentUserId })
+      });
+      setRejected(true);
+      if (refresh) refresh();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (accepted) return <Card className="p-3">Solicitud aceptada</Card>;
+  if (rejected) return <Card className="p-3">Solicitud rechazada</Card>;
+
   return (
     <Card className="p-3 flex items-center justify-between border transition-all duration-300 hover:shadow-md hover:border-primary/20 hover:translate-y-[-2px] cursor-pointer rounded-md">
       <div className="flex items-center gap-3">
@@ -218,9 +330,7 @@ function FriendCard({ name, avatar, status, description, university }: FriendCar
                 height={48}
                 className="rounded-full object-cover border border-muted" 
               />
-              <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border border-white ${
-                status === "En línea" ? "bg-green-500" : "bg-gray-400"
-              }`} />
+              <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border border-white ${status === "En línea" ? "bg-green-500" : "bg-gray-400"}`} />
             </div>
           </HoverCardTrigger>
           <HoverCardContent className="w-80">
@@ -240,16 +350,12 @@ function FriendCard({ name, avatar, status, description, university }: FriendCar
                     <h4 className="text-sm font-semibold">{name}</h4>
                     <p className="text-xs text-muted-foreground">{university}</p>
                     <span className="text-xs inline-flex items-center mt-1">
-                      <span className={`w-2 h-2 rounded-full mr-1 ${
-                        status === "En línea" ? "bg-green-500" : "bg-gray-400"
-                      }`}></span>
+                      <span className={`w-2 h-2 rounded-full mr-1 ${status === "En línea" ? "bg-green-500" : "bg-gray-400"}`}></span>
                       {status}
                     </span>
                   </div>
                 </div>
-                <p className="text-sm">
-                  {description || "Sin descripción disponible"}
-                </p>
+                <p className="text-sm">{description || "Sin descripción disponible"}</p>
               </div>
             </div>
           </HoverCardContent>
@@ -260,33 +366,70 @@ function FriendCard({ name, avatar, status, description, university }: FriendCar
         </div>
       </div>
       <div className="flex gap-2">
-        <button className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded">
-          Mensaje
-        </button>
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <button className="text-xs text-destructive hover:bg-destructive/10 transition-colors px-2 py-1.5 rounded">
-              Eliminar
-            </button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Esta acción eliminará a <span className="font-semibold">{name}</span> de tu lista de amigos y no se puede deshacer.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction className="bg-destructive hover:bg-destructive/90">
-                Eliminar
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {showAddFriend && (
+          <button
+            className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded disabled:opacity-60"
+            onClick={handleSendRequest}
+            disabled={loading || sent}
+          >
+            {sent ? 'Solicitud enviada' : loading ? 'Enviando...' : 'Agregar'}
+          </button>
+        )}
+        {showAcceptReject && (
+          <>
+            <button
+              className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded disabled:opacity-60"
+              onClick={handleAccept}
+              disabled={loading}
+            >Aceptar</button>
+            <button
+              className="text-xs text-destructive hover:bg-destructive/10 transition-colors px-2 py-1.5 rounded disabled:opacity-60"
+              onClick={handleReject}
+              disabled={loading}
+            >Rechazar</button>
+          </>
+        )}
+        {!showAddFriend && !showAcceptReject && (
+          <>
+            <button className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded">Mensaje</button>
+            <Dialog>
+              <DialogTrigger asChild>
+                <button
+                  className="text-xs text-destructive hover:bg-destructive/10 transition-colors px-2 py-1.5 rounded disabled:opacity-60 ml-2"
+                  disabled={loading}
+                >Eliminar</button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>¿Eliminar amigo?</DialogTitle>
+                </DialogHeader>
+                <p>¿Estás seguro que deseas eliminar a <span className="font-semibold">{name}</span> de tu lista de amigos? Esta acción no se puede deshacer.</p>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <button className="px-4 py-1 rounded bg-muted text-muted-foreground hover:bg-muted/70">Cancelar</button>
+                  </DialogClose>
+                  <button
+                    className="px-4 py-1 rounded bg-destructive text-white hover:bg-destructive/90"
+                    onClick={async () => {
+                      setLoading(true);
+                      await fetch('/api/neo4jDB/eliminar-amigo', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: currentUserId, friendId: id })
+                      });
+                      setLoading(false);
+                      if (refresh) refresh();
+                      toast("Amigo eliminado correctamente");
+                    }}
+                  >Eliminar</button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </>
+        )}
       </div>
     </Card>
-  )
+  );
 }
 
 // Componente para mostrar una sugerencia de amistad
@@ -298,7 +441,29 @@ interface SuggestionCardProps {
   university?: string;
 }
 
-function SuggestionCard({ name, avatar, mutualFriends, description, university }: SuggestionCardProps) {
+function SuggestionCard({ name, avatar, mutualFriends, description, university, id }: SuggestionCardProps & { id: number }) {
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  // Simulación: usuario actual (debería venir de auth)
+  const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') || '' : '';
+
+  const handleSendRequest = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/neo4jDB/enviar-solicitud-amistad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromUserId: currentUserId, toUserId: id })
+      });
+      if (res.ok) {
+        setSent(true);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Card className="p-3 flex items-center justify-between border transition-all duration-300 hover:shadow-md hover:border-primary/20 hover:translate-y-[-2px] cursor-pointer rounded-md">
       <div className="flex items-center gap-3">
@@ -350,13 +515,17 @@ function SuggestionCard({ name, avatar, mutualFriends, description, university }
         </div>
       </div>
       <div className="flex gap-2">
-        <button className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded">
-          Agregar
+        <button
+          className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded disabled:opacity-60"
+          onClick={handleSendRequest}
+          disabled={loading || sent}
+        >
+          {sent ? 'Solicitud enviada' : loading ? 'Enviando...' : 'Agregar'}
         </button>
         <button className="text-xs text-muted-foreground hover:bg-muted transition-colors px-2 py-1.5 rounded">
           Ignorar
         </button>
       </div>
     </Card>
-  )
+  );
 }

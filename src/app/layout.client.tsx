@@ -23,9 +23,9 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { useEffect, useState } from "react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -66,12 +66,10 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {isLoginPage ? (
-          // Render just the children without sidebar for login-related pages
           <div className="min-h-screen">
             {children}
           </div>
         ) : (
-          // Render the normal layout with sidebar for all other pages
           <SidebarProvider>
             <Sidebar>
               <SidebarHeader>
@@ -195,15 +193,12 @@ export default function RootLayout({
               </SidebarMenu>
             </SidebarFooter>
             </Sidebar>
-
             <SidebarInset>
               {isChatsPage ? (
-                // Render chats page without additional wrappers to avoid scroll
                 <div className="h-screen">
                   {children}
                 </div>
               ) : (
-                // Normal layout for other pages
                 <div className="relative flex min-h-screen flex-col">
                   <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-6">
                     <SidebarTrigger />
@@ -217,6 +212,7 @@ export default function RootLayout({
             </SidebarInset>
           </SidebarProvider>
         )}
+        <Toaster />
       </body>
     </html>
   );

@@ -48,6 +48,88 @@ export default function Chat() {
       .then(data => setUsuarios(data.data || []));
   }, []);
 
+  // Estado para contar mensajes no leídos por chat
+  const [unreadCounts, setUnreadCounts] = useState<{ [userId: string]: number }>({});
+
+  // Actualizar mensajes y contadores en tiempo real
+  useEffect(() => {
+    if (!socketRef.current) return;
+    const socket = socketRef.current;
+    // Cuando recibo un mensaje, actualizar mensajes y contadores en tiempo real
+    socket.on('receive-message', (msg: Message) => {
+      setMessages(prev => {
+        // Si el mensaje es para el chat abierto, solo agregarlo
+        if (msg.from === activeChat || msg.to === activeChat) {
+          return [...prev, msg];
+        }
+        // Si el mensaje es para mí pero NO estoy en ese chat, aumentar contador
+        if (msg.to === currentUserId && msg.from !== activeChat) {
+          setUnreadCounts(prevCounts => ({
+            ...prevCounts,
+            [msg.from]: (prevCounts[msg.from] || 0) + 1
+          }));
+        }
+        return [...prev, msg];
+      });
+    });
+    return () => {
+      socket.off('receive-message');
+    };
+  }, [activeChat, currentUserId]);
+
+  // Reiniciar contador de mensajes no leídos al abrir un chat
+  useEffect(() => {
+    if (!activeChat) return;
+    setUnreadCounts(prev => ({ ...prev, [activeChat]: 0 }));
+  }, [activeChat]);
+
+  // Ordenar usuarios por último mensaje recibido/enviado, pero SOLO sube si hay mensaje nuevo no leído
+  const usuariosConUltimoMensaje = usuarios.map(u => {
+    const mensajesConUsuario = messages.filter(m => m.from === u._id || m.to === u._id);
+    let ultimoMensaje: Message | null = null;
+    if (mensajesConUsuario.length > 0) {
+      ultimoMensaje = mensajesConUsuario.reduce((a, b) => {
+        const getTime = (m: Message) => {
+          if (m.epochMillis) {
+            return typeof m.epochMillis === 'object' && m.epochMillis !== null && 'low' in m.epochMillis
+              ? (m.epochMillis as any).low
+              : m.epochMillis;
+          }
+          if (m.fecha) {
+            if (typeof m.fecha === 'string' && !isNaN(Date.parse(m.fecha))) return new Date(m.fecha).getTime();
+            if (typeof m.fecha === 'object' && m.fecha !== null && 'low' in m.fecha) return (m.fecha as any).low;
+          }
+          return 0;
+        };
+        return getTime(a) > getTime(b) ? a : b;
+      });
+    }
+    return { ...u, ultimoMensaje };
+  });
+
+  // Ordenar: primero los que tienen mensajes no leídos, luego por último mensaje, pero si no hay mensajes no leídos, mantener el orden original
+  const usuariosOrdenados = usuariosConUltimoMensaje.slice().sort((a, b) => {
+    const unreadA = unreadCounts[a._id] || 0;
+    const unreadB = unreadCounts[b._id] || 0;
+    if (unreadA !== unreadB) return unreadB - unreadA;
+    // Si ambos tienen 0 mensajes no leídos, mantener el orden original
+    if (unreadA === 0 && unreadB === 0) return 0;
+    const getTime = (m: Message | null) => {
+      if (!m) return 0;
+      if (m.epochMillis) {
+        return typeof m.epochMillis === 'object' && m.epochMillis !== null && 'low' in m.epochMillis
+          ? (m.epochMillis as any).low
+          : m.epochMillis;
+      }
+      if (m.fecha) {
+        if (typeof m.fecha === 'string' && !isNaN(Date.parse(m.fecha))) return new Date(m.fecha).getTime();
+        if (typeof m.fecha === 'object' && m.fecha !== null && 'low' in m.fecha) return (m.fecha as any).low;
+      }
+      return 0;
+    };
+    return getTime(b.ultimoMensaje) - getTime(a.ultimoMensaje);
+  });
+
   // Cargar historial de mensajes cuando cambia el chat activo
   useEffect(() => {
     if (!activeChat) return;
@@ -85,16 +167,10 @@ export default function Chat() {
       socket.connect();
       socket.emit('join', currentUserId);
     }
-    socket.on('receive-message', (msg: Message) => {
-      // Solo agregar si el mensaje es para el chat activo
-      if (msg.from === activeChat || msg.to === activeChat) {
-        setMessages(prev => [...prev, msg]);
-      }
-    });
     return () => {
       socket.disconnect();
     };
-  }, [currentUserId, activeChat]);
+  }, [currentUserId]);
 
   // Enviar mensaje (ahora también por socket.io)
   const handleSendMessage = async () => {
@@ -114,8 +190,8 @@ export default function Chat() {
     }
   };
 
-  // Filtrar usuarios
-  const filteredUsuarios = usuarios.filter(u =>
+  // Filtrar usuarios (no mostrar el propio usuario en la lista de chats)
+  const filteredUsuarios = usuariosOrdenados.filter(u =>
     u._id !== currentUserId &&
     (u.nombreUsuario.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.nombre.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -156,6 +232,10 @@ export default function Chat() {
                   <div className="ml-3 flex-1">
                     <div className="flex justify-between items-center">
                       <p className="font-medium text-gray-900">{u.nombre} {u.apellido1}</p>
+                      {/* Mostrar contador solo si hay mensajes no leídos y NO es el chat activo */}
+                      {unreadCounts[u._id] > 0 && activeChat !== u._id && (
+                        <span className="ml-2 bg-blue-500 text-white rounded-full px-2 py-0.5 text-xs font-bold">{unreadCounts[u._id]}</span>
+                      )}
                     </div>
                     <p className="text-sm text-gray-500 truncate">{u.nombreUsuario}</p>
                   </div>
