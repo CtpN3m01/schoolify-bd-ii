@@ -55,14 +55,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       maxAge: 60 * 60 * 24 * 7 // 7 días
     }));
 
-    return res.status(200).json({ message: 'Login exitoso', usuario: {
-      nombreUsuario: usuario.nombreUsuario,
-      nombre: usuario.nombre,
-      apellido1: usuario.apellido1,
-      apellido2: usuario.apellido2,
-      fechaNacimiento: usuario.fechaNacimiento,
-      foto: usuario.foto || null
-    }});
+    return res.status(200).json({ 
+      message: 'Login exitoso', 
+      usuario: {
+        _id: usuario._id,
+        nombreUsuario: usuario.nombreUsuario,
+        nombre: usuario.nombre,
+        apellido1: usuario.apellido1,
+        apellido2: usuario.apellido2,
+        fechaNacimiento: usuario.fechaNacimiento,
+        foto: usuario.foto || null
+      }
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Error en el servidor' });

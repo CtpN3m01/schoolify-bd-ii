@@ -29,7 +29,10 @@ export default function Login() {
       const data = await res.json();
       if (res.ok) {
         setSuccess('¡Login exitoso!');
-        // Redirigir después de un pequeño delay
+        // Guardar el userId en localStorage
+        if (data.usuario && data.usuario._id) {
+          localStorage.setItem('userId', data.usuario._id);
+        }
         setTimeout(() => router.push('/menu/principal'), 1200);
       } else {
         setError(data.message || 'Error al iniciar sesión');
