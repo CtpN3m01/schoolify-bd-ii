@@ -14,7 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     // Contar usuarios ya matriculados
     const countResult = await session.run(
-      'MATCH (u:Usuario)-[:MATRICULADO_EN]->(c:Curso {id: $cursoId}) RETURN count(u) AS count',
+      'MATCH (u:Usuario)-[:MATRICULADO_EN]->(c:Curso {_id: $cursoId}) RETURN count(u) AS count',
       { cursoId }
     );
     const count = countResult.records[0]?.get('count').toInt() || 0;
@@ -23,7 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     // Verificar si ya está matriculado
     const existsResult = await session.run(
-      'MATCH (u:Usuario {id: $userId})-[:MATRICULADO_EN]->(c:Curso {id: $cursoId}) RETURN u',
+      'MATCH (u:Usuario {_id: $userId})-[:MATRICULADO_EN]->(c:Curso {_id: $cursoId}) RETURN u',
       { userId, cursoId }
     );
     if (existsResult.records.length > 0) {
@@ -31,7 +31,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     // Crear relación de matrícula
     await session.run(
-      'MATCH (u:Usuario {id: $userId}), (c:Curso {id: $cursoId}) CREATE (u)-[:MATRICULADO_EN]->(c)',
+      'MATCH (u:Usuario {_id: $userId}), (c:Curso {_id: $cursoId}) CREATE (u)-[:MATRICULADO_EN]->(c)',
       { userId, cursoId }
     );
     res.status(201).json({ message: 'Usuario matriculado correctamente.' });

@@ -14,12 +14,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const session = driver.session();
   try {
     const result = await session.run(
-      `MATCH (u:Usuario {_id: $userId})-[:MATRICULADO_EN]->(c:Curso)
-       RETURN c.id AS id, c.nombreCurso AS nombreCurso, c.descripcion AS descripcion, c.foto AS foto, c.fechaInicio AS fechaInicio, c.fechaFin AS fechaFin, c.estado AS estado, c.nombreUsuarioDocente AS nombreUsuarioDocente`,
+      `MATCH (u:Usuario {_id: $userId})-[:MATRICULADO_EN]->(c:Curso {_id: c._id})
+       RETURN c._id AS _id, c.nombreCurso AS nombreCurso, c.descripcion AS descripcion, c.foto AS foto, c.fechaInicio AS fechaInicio, c.fechaFin AS fechaFin, c.estado AS estado, c.nombreUsuarioDocente AS nombreUsuarioDocente`,
       { userId }
     );
     const cursos = result.records.map(r => ({
-      _id: r.get('id'),
+      _id: r.get('_id'),
       nombreCurso: r.get('nombreCurso'),
       descripcion: r.get('descripcion'),
       foto: r.get('foto'),
