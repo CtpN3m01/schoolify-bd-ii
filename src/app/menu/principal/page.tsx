@@ -38,7 +38,7 @@ export default function Principal() {
   const [openModulo, setOpenModulo] = useState<number | null>(null);
   const [openSubseccion, setOpenSubseccion] = useState<{ mod: number; sub: number } | null>(null);
   const [matriculando, setMatriculando] = useState(false);
-  const [matriculaExitosa, setMatriculaExitosa] = useState(false);
+  const [matriculaExitosa, setMatriculaExitusa] = useState(false);
   const router = useRouter();
   useEffect(() => {
     const fetchCursosMatriculados = async () => {
@@ -97,13 +97,28 @@ export default function Principal() {
   // Lógica de matrícula (placeholder)
   const handleMatricularse = async () => {
     setMatriculando(true);
-    setMatriculaExitosa(false);
+    setMatriculaExitusa(false);
     // Aquí iría la llamada real a la API de matrícula
     setTimeout(() => {
       setMatriculando(false);
-      setMatriculaExitosa(true);
+      setMatriculaExitusa(true);
     }, 1200);
   };
+
+  // Utilidad para formatear fechas Neo4j o string
+  function formatNeo4jDate(date: any) {
+    if (!date) return "";
+    if (typeof date === "string") return date;
+    if (typeof date === "object" && 'year' in date && 'month' in date && 'day' in date) {
+      // Neo4j date object: {year, month, day} (could be integers or objects)
+      const getVal = (v: any) => (typeof v === 'object' && v !== null && 'low' in v) ? v.low : v;
+      const year = getVal(date.year);
+      const month = String(getVal(date.month)).padStart(2, "0");
+      const day = String(getVal(date.day)).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+    return "";
+  }
 
   // Renderizado de los cursos
   return (
@@ -143,6 +158,8 @@ export default function Principal() {
                 <div className="text-xs text-gray-500 mt-auto">
                   Docente: {curso.nombreUsuarioDocente}
                 </div>
+                <div className="text-xs text-gray-500">Inicio: {formatNeo4jDate(curso.fechaInicio)}</div>
+                <div className="text-xs text-gray-500">Fin: {formatNeo4jDate(curso.fechaFin)}</div>
               </CardContent>
             </Card>
           ))
@@ -199,8 +216,8 @@ export default function Principal() {
                 <div>
                   <h2 className="text-xl font-bold mb-2">{selectedCurso.nombreCurso}</h2>
                   <p className="mb-2 text-gray-700"><span className="font-semibold">Descripción:</span> {selectedCurso.descripcion}</p>
-                  <div className="mb-2 text-gray-700"><span className="font-semibold">Fecha inicio:</span> {selectedCurso.fechaInicio}</div>
-                  <div className="mb-2 text-gray-700"><span className="font-semibold">Fecha fin:</span> {selectedCurso.fechaFin}</div>
+                  <div className="mb-2 text-gray-700"><span className="font-semibold">Fecha inicio:</span> {formatNeo4jDate(selectedCurso.fechaInicio)}</div>
+                  <div className="mb-2 text-gray-700"><span className="font-semibold">Fecha fin:</span> {formatNeo4jDate(selectedCurso.fechaFin)}</div>
                   <div className="mb-2 text-gray-700"><span className="font-semibold">Docente:</span> {selectedCurso.nombreUsuarioDocente}</div>
                   <div className="mb-2 text-gray-700"><span className="font-semibold">Estado:</span> <span className="font-semibold">{selectedCurso.estado || 'Publicado'}</span></div>
                 </div>
