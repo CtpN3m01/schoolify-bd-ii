@@ -39,6 +39,10 @@ export default function Register() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Error al registrar');
       setSuccess('¡Registro exitoso!');
+      // Guardar el userId en localStorage
+      if (data.usuario && data.usuario._id) {
+        localStorage.setItem('userId', data.usuario._id);
+      }
       setForm({
         nombreUsuario: '', password: '', nombre: '', apellido1: '', apellido2: '', fechaNacimiento: '', foto: ''
       });
