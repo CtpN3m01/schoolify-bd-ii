@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/hover-card"
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog"
 import { toast } from "sonner"
+import { useRouter } from "next/navigation"
 
 // Definición de tipos
 interface Friend {
@@ -270,6 +271,7 @@ function FriendCard({ id, name, avatar, status, description, university, showAdd
   const [accepted, setAccepted] = useState(false);
   const [rejected, setRejected] = useState(false);
   const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') || '' : '';
+  const router = useRouter();
 
   const handleSendRequest = async () => {
     setLoading(true);
@@ -391,7 +393,10 @@ function FriendCard({ id, name, avatar, status, description, university, showAdd
         )}
         {!showAddFriend && !showAcceptReject && (
           <>
-            <button className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded">Mensaje</button>
+            <button
+              className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded"
+              onClick={() => router.push(`/menu/chats?userId=${id}`)}
+            >Mensaje</button>
             <Dialog>
               <DialogTrigger asChild>
                 <button

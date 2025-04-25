@@ -5,7 +5,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig: import('next').NextConfig = {
   images: {
-    domains: ["m.media-amazon.com", "pngimg.com", "media.istockphoto.com"],
+    domains: ["m.media-amazon.com", "pngimg.com", "media.istockphoto.com", "culturachina.net", "26.110.167.142"],
   },
   // Permitir escuchar en todas las interfaces de red
   devIndicators: {

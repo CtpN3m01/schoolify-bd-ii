@@ -23,9 +23,10 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Toaster } from "@/components/ui/sonner";
+import { UserProvider, useUser } from "./UserContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -46,14 +47,41 @@ export default function RootLayout({
   const router = useRouter();
   const isLoginPage = pathname === "/auth/login" || pathname === "/auth/register" || pathname === "/auth/forgot-password";
   const isChatsPage = pathname === "/menu/chats";
-  const [user, setUser] = useState<{ nombreUsuario: string; foto?: string } | null>(null);
 
+  // Use context for user state
+  // Only fetch user in provider, not here
+  // Remove local user/setUser
+
+  if (isLoginPage) {
+    return (
+      <html lang="es">
+        <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+          <div className="min-h-screen">{children}</div>
+        </body>
+      </html>
+    );
+  }
+
+  return (
+    <UserProvider>
+      <UserLayout router={router} isChatsPage={isChatsPage} geistSans={geistSans} geistMono={geistMono}>
+        {children}
+      </UserLayout>
+    </UserProvider>
+  );
+}
+
+// Extracted layout to use user context
+function UserLayout({ children, router, isChatsPage, geistSans, geistMono }: any) {
+  const { user, setUser } = useUser();
+  // Fetch user on mount if not present
   useEffect(() => {
-    // Obtener el usuario autenticado
-    fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => setUser(data.user));
-  }, []);
+    if (!user) {
+      fetch("/api/auth/me")
+        .then((res) => res.json())
+        .then((data) => setUser(data.user));
+    }
+  }, [user, setUser]);
 
   const handleLogout = async () => {
     await fetch("/api/mongoDB/auth/logout", { method: "POST" });
@@ -62,105 +90,97 @@ export default function RootLayout({
 
   return (
     <html lang="es">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {isLoginPage ? (
-          <div className="min-h-screen">
-            {children}
-          </div>
-        ) : (
-          <SidebarProvider>
-            <Sidebar>
-              <SidebarHeader>
-                <div className="flex justify-center items-center gap-2 px-2 w-full">
-                  <GraduationCapIcon className="h-8 w-8" />
-                  <span className="text-xl font-bold">Schoolify</span>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <SidebarProvider>
+          <Sidebar>
+            <SidebarHeader>
+              <div className="flex justify-center items-center gap-2 px-2 w-full">
+                <GraduationCapIcon className="h-8 w-8" />
+                <span className="text-xl font-bold">Schoolify</span>
+              </div>
+            </SidebarHeader>
+            <SidebarContent>
+              <div>
+                <div className="px-2 text-xxs text-black font-bold">
+                  Menú
                 </div>
-              </SidebarHeader>
-              
-              <SidebarContent>
-                <div>
-                  <div className="px-2 text-xxs text-black font-bold">
-                    Menú
-                  </div>
-                </div>
-                <SidebarMenu>
+              </div>
+              <SidebarMenu>
 
-                  <SidebarMenuItem>
-                    <SidebarMenuButton 
-                      tooltip="Principal" 
-                      onClick={() => router.push('/menu/principal')}
-                    >
-                      <HomeIcon />
-                      <span>Principal</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton 
+                    tooltip="Principal" 
+                    onClick={() => router.push('/menu/principal')}
+                  >
+                    <HomeIcon />
+                    <span>Principal</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
 
-                  <SidebarMenuItem>
-                    <SidebarMenuButton 
-                      tooltip="Buscar"
-                      onClick={() => router.push('/menu/buscar')}
-                    >
-                      <Search />
-                      <span>Buscar</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton 
+                    tooltip="Buscar"
+                    onClick={() => router.push('/menu/buscar')}
+                  >
+                    <Search />
+                    <span>Buscar</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
 
-                  <SidebarMenuItem>
-                    <SidebarMenuButton 
-                      tooltip="Amigos"
-                      onClick={() => router.push('/menu/amigos')}
-                    >
-                      <UsersIcon />
-                      <span>Amigos</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton 
+                    tooltip="Amigos"
+                    onClick={() => router.push('/menu/amigos')}
+                  >
+                    <UsersIcon />
+                    <span>Amigos</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
 
-                  <SidebarMenuItem>
-                    <SidebarMenuButton 
-                      tooltip="Chats"
-                      onClick={() => router.push('/menu/chats')}
-                    >
-                      <MessageSquareText />
-                      <span>Chats</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton 
+                    tooltip="Chats"
+                    onClick={() => router.push('/menu/chats')}
+                  >
+                    <MessageSquareText />
+                    <span>Chats</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
 
-                  <SidebarMenuItem>
-                    <SidebarMenuButton 
-                      tooltip="Perfil"
-                      onClick={() => router.push('/menu/perfil')}
-                    >
-                      <UserIcon />
-                      <span>Perfil</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton 
+                    tooltip="Perfil"
+                    onClick={() => router.push('/menu/perfil')}
+                  >
+                    <UserIcon />
+                    <span>Perfil</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
 
-                  <Separator className="my-2" />
+                <Separator className="my-2" />
 
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip="Portal Docente"
-                      onClick={() => router.push('/menu/portal-docente/cursos')}
-                    >
-                      <GraduationCapIcon />
-                      <span>Portal Docente</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip="Evaluaciones"
-                      onClick={() => router.push('/menu/portal-docente/evaluaciones')}
-                    >
-                      <GraduationCapIcon />
-                      <span>Evaluaciones</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </SidebarMenu>
-              </SidebarContent>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    tooltip="Portal Docente"
+                    onClick={() => router.push('/menu/portal-docente/cursos')}
+                  >
+                    <GraduationCapIcon />
+                    <span>Portal Docente</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    tooltip="Evaluaciones"
+                    onClick={() => router.push('/menu/portal-docente/evaluaciones')}
+                  >
+                    <GraduationCapIcon />
+                    <span>Evaluaciones</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarContent>
 
-              <SidebarFooter>
+            <SidebarFooter>
               <SidebarMenu>
                 <SidebarMenuItem>
                   <DropdownMenu>
@@ -177,10 +197,7 @@ export default function RootLayout({
                         <ChevronUp className="ml-auto" />
                       </SidebarMenuButton>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      side="top"
-                      className="w-[--radix-popper-anchor-width]"
-                    >
+                    <DropdownMenuContent side="top" className="w-[--radix-popper-anchor-width]">
                       <DropdownMenuItem onClick={() => router.push('/menu/perfil')}>
                         <span>Perfil</span>
                       </DropdownMenuItem>
@@ -192,27 +209,27 @@ export default function RootLayout({
                 </SidebarMenuItem>
               </SidebarMenu>
             </SidebarFooter>
-            </Sidebar>
-            <SidebarInset>
-              {isChatsPage ? (
-                <div className="h-screen">
+          </Sidebar>
+          <SidebarInset>
+            {isChatsPage ? (
+              <div className="h-screen">
+                {children}
+              </div>
+            ) : (
+              <div className="relative flex min-h-screen flex-col">
+                <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-6">
+                  <SidebarTrigger />
+                  <div className="flex-1" />
+                </header>
+                <main className="flex-1 p-6">
                   {children}
-                </div>
-              ) : (
-                <div className="relative flex min-h-screen flex-col">
-                  <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-6">
-                    <SidebarTrigger />
-                    <div className="flex-1" />
-                  </header>
-                  <main className="flex-1 p-6">
-                    {children}
-                  </main>
-                </div>
-              )}
-            </SidebarInset>
-          </SidebarProvider>
-        )}
-        <Toaster />
+                  <div id="modal-root" />
+                </main>
+              </div>
+            )}
+          </SidebarInset>
+          <Toaster />
+        </SidebarProvider>
       </body>
     </html>
   );

@@ -8,7 +8,7 @@ import {
   DialogClose,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { CldUploadWidget } from 'next-cloudinary';
+
 
 export default function Perfil() {
   const [user, setUser] = useState<any>(null);
@@ -45,11 +45,32 @@ export default function Perfil() {
     setEditData({ ...editData, [e.target.name]: e.target.value });
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadArchivo = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) throw new Error('Error al subir archivo');
+    const data = await res.json();
+    return data.url;
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setSelectedFile(file);
       setPreview(URL.createObjectURL(file));
+      setError("");
+      try {
+        const url = await uploadArchivo(file);
+        setPreview(url);
+        setEditData((prev: any) => ({ ...prev, foto: url }));
+        setError("");
+      } catch (err) {
+        setError("Error al subir la imagen");
+      }
     }
   };
 
@@ -104,34 +125,6 @@ export default function Perfil() {
     return `${day}/${month}/${year}`;
   };
 
-  const handleCloudinaryUpload = (result: any) => {
-    console.log('Cloudinary upload result:', result);
-    if (result?.event === "success" && result.info?.secure_url) {
-      setPreview(result.info.secure_url);
-      setSelectedFile(null);
-      setEditData((prev: any) => ({ ...prev, foto: result.info.secure_url }));
-      // Actualiza la foto de perfil directamente y refresca el usuario
-      fetch("/api/mongoDB/auth/editarUsuario", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nombreUsuario: user.nombreUsuario,
-          nuevoNombreUsuario: user.nombreUsuario,
-          nombre: user.nombre,
-          apellido1: user.apellido1,
-          apellido2: user.apellido2,
-          fechaNacimiento: user.fechaNacimiento,
-          foto: result.info.secure_url,
-        }),
-      })
-        .then((res) => res.ok ? res.json() : null)
-        .then(() => {
-          setUser((prev: any) => ({ ...prev, foto: result.info.secure_url }));
-          setPreview(null);
-        });
-    }
-  };
-
   return (
     <div className="flex flex-col min-h-screen px-4 py-8 sm:px-20 sm:py-20 font-sans bg-gray-50">
       {/* Card principal de perfil */}
@@ -151,20 +144,6 @@ export default function Perfil() {
                 <AvatarFallback>{user.nombreUsuario?.[0]?.toUpperCase() || "U"}</AvatarFallback>
               )}
             </Avatar>
-            <CldUploadWidget
-              uploadPreset="cloudinary_app"
-              onSuccess={handleCloudinaryUpload}
-            >
-              {({ open }) => (
-                hovered && (
-                  <button
-                    type="button"
-                    className="absolute inset-0 bg-black/60 text-white flex items-center justify-center text-xs font-semibold transition rounded-full"
-                    onClick={() => open()}
-                  >Cambiar foto de perfil</button>
-                )
-              )}
-            </CldUploadWidget>
           </div>
           <span className="text-gray-700 text-base font-medium mb-1">@{user.nombreUsuario}</span>
           <span className="text-gray-500 text-sm mb-4">{user.amigos?.length ? `${user.amigos.length} Amigos` : "Sin amigos"}</span>
@@ -243,6 +222,20 @@ export default function Perfil() {
                     onChange={handleEditChange}
                     className="border rounded px-2 py-1"
                   />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="foto" className="font-medium">Foto de perfil</label>
+                  <input
+                    type="file"
+                    id="foto"
+                    name="foto"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="border rounded px-2 py-1"
+                  />
+                  {preview && (
+                    <img src={preview} alt="Preview" className="w-24 h-24 rounded-full mt-2 object-cover" />
+                  )}
                 </div>
                 <div className="flex gap-2 justify-end mt-4">
                   <button

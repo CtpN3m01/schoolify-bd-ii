@@ -51,6 +51,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     await usuarios.insertOne(nuevoUsuario);
     console.log('Usuario registrado:', nuevoUsuario);
+
+    // Sincronizar usuarios con Neo4j
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ''}/api/neo4jDB/sync-usuarios`, {
+        method: 'POST',
+      });
+    } catch (e) {
+      console.error('Error sincronizando usuarios con Neo4j:', e);
+    }
     return res.status(201).json({ message: 'Usuario registrado correctamente' });
     
   } catch (error) {

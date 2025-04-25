@@ -66,6 +66,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         maxAge: 60 * 60 * 24 * 7
       }));
     }
+    // Sincronizar usuarios con Neo4j
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ''}/api/neo4jDB/sync-usuarios`, {
+        method: 'POST',
+      });
+    } catch (e) {
+      console.error('Error sincronizando usuarios con Neo4j:', e);
+    }
     return res.status(200).json({ message: 'Perfil actualizado correctamente' });
   } catch (error) {
     return res.status(500).json({ message: 'Error en el servidor' });
