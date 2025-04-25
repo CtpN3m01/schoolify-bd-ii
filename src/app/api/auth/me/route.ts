@@ -19,7 +19,9 @@ export async function GET(req: NextRequest) {
     if (!usuario) return NextResponse.json({ user: null }, { status: 200 });
     // No enviar password ni salt
     const { password, salt, ...userData } = usuario;
-    return NextResponse.json({ user: userData }, { status: 200 });
+    // Preparar userData para respuesta, asegurando _id string
+    const userDataForResponse = { ...userData, _id: userData._id?.toString?.() || userData._id };
+    return NextResponse.json({ user: userDataForResponse }, { status: 200 });
   } catch {
     return NextResponse.json({ user: null }, { status: 200 });
   }

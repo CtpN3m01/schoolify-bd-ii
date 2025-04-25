@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useState, useRef, useEffect } from 'react';
 import { Textarea } from "@/components/ui/textarea";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { io as clientIO, Socket } from 'socket.io-client';
+import { useRouter } from 'next/navigation';
 
 interface Usuario {
   _id: string;
@@ -37,6 +38,7 @@ export default function Chat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
+  const router = useRouter();
 
   // Simulación: usuario actual (esto debería venir de auth)
   const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') || '' : '';
@@ -223,6 +225,7 @@ export default function Chat() {
                 <div
                   key={u._id}
                   className={`p-3 flex items-center cursor-pointer hover:bg-gray-50 ${activeChat === u._id ? 'bg-blue-50' : ''}`}
+
                   onClick={() => setActiveChat(u._id)}
                 >
                   <Avatar>
@@ -253,11 +256,20 @@ export default function Chat() {
         <div className="flex-none p-3 border-b border-gray-200 bg-white flex items-center">
           {activeChat && (
             <>
-              <Avatar>
+              <Avatar
+                onClick={() => {
+                  const usuario = usuarios.find(u => u._id === activeChat);
+                  if (usuario) router.push(`/menu/perfil?id=${usuario.nombreUsuario}`);
+                }}
+                className="cursor-pointer"
+              >
                 <AvatarImage src={usuarios.find(u => u._id === activeChat)?.foto || undefined} alt={usuarios.find(u => u._id === activeChat)?.nombreUsuario || ''} />
                 <AvatarFallback>{usuarios.find(u => u._id === activeChat)?.nombreUsuario[0]}</AvatarFallback>
               </Avatar>
-              <div className="ml-3">
+              <div className="ml-3 cursor-pointer" onClick={() => {
+                const usuario = usuarios.find(u => u._id === activeChat);
+                if (usuario) router.push(`/menu/perfil?id=${usuario.nombreUsuario}`);
+              }}>
                 <h2 className="font-medium text-gray-900">{usuarios.find(u => u._id === activeChat)?.nombre} {usuarios.find(u => u._id === activeChat)?.apellido1}</h2>
                 <p className="text-xs text-gray-500">{usuarios.find(u => u._id === activeChat)?.nombreUsuario}</p>
               </div>

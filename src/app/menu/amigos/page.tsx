@@ -320,7 +320,7 @@ function FriendCard({ id, name, avatar, status, description, university, showAdd
   if (rejected) return <Card className="p-3">Solicitud rechazada</Card>;
 
   return (
-    <Card className="p-3 flex items-center justify-between border transition-all duration-300 hover:shadow-md hover:border-primary/20 hover:translate-y-[-2px] cursor-pointer rounded-md">
+    <Card className="relative flex flex-col gap-2 p-4">
       <div className="flex items-center gap-3">
         <HoverCard>
           <HoverCardTrigger asChild>
@@ -367,7 +367,7 @@ function FriendCard({ id, name, avatar, status, description, university, showAdd
           <p className="text-xs text-muted-foreground">{status}</p>
         </div>
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-2 mt-2">
         {showAddFriend && (
           <button
             className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded disabled:opacity-60"
@@ -432,6 +432,10 @@ function FriendCard({ id, name, avatar, status, description, university, showAdd
             </Dialog>
           </>
         )}
+        <button
+          className="text-xs bg-blue-600 text-white hover:bg-blue-700 transition-colors px-3 py-1.5 rounded"
+          onClick={() => router.push(`/menu/perfil?id=${typeof id === 'string' ? id : name}`)}
+        >Ver perfil</button>
       </div>
     </Card>
   );
