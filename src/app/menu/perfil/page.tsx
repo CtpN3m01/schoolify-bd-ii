@@ -8,6 +8,7 @@ import {
   DialogClose,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useRouter, useSearchParams } from "next/navigation";
 
 
 export default function Perfil() {
@@ -23,16 +24,49 @@ export default function Perfil() {
   const [imageUrl, setImageUrl] = useState('');
   const avatarRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [cursos, setCursos] = useState<any[]>([]);
+
+  // Mover hooks aquí para asegurar que se usan solo en el cliente
+  // Permitir ver perfil propio o ajeno (por id en query param)
+  const perfilId = typeof window !== 'undefined' && searchParams ? searchParams.get("id") : null;
 
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => setUser(data.user));
-  }, []);
+    // Si hay id en query param, buscar ese usuario, si no, el propio
+    const fetchUser = async () => {
+      if (perfilId) {
+        // Buscar usuario por username (perfil ajeno)
+        const res = await fetch(`/api/neo4jDB/buscar-usuario-por-username?username=${perfilId}&userId=0`);
+        if (res.ok) {
+          const data = await res.json();
+          setUser({ ...data, nombreUsuario: perfilId });
+        } else {
+          setUser(null);
+        }
+      } else {
+        // Perfil propio: obtener usuario autenticado
+        const res = await fetch("/api/auth/me");
+        const data = await res.json();
+        if (data.user && (data.user.nombreUsuario || data.user._id || data.user.id)) {
+          setUser(data.user);
+        } else {
+          setUser(null);
+        }
+      }
+    };
+    fetchUser();
+  }, [perfilId]);
 
-  if (!user) {
-    return <div className="flex justify-center items-center min-h-screen">Cargando...</div>;
-  }
+  useEffect(() => {
+    if (!user) return;
+    // Obtener cursos matriculados desde Neo4j solo si hay identificador
+    const userNeoId = user._id || user.id || user.nombreUsuario;
+    if (!userNeoId) return;
+    fetch(`/api/neo4jDB/cursos-matriculados?userId=${userNeoId}`)
+      .then(res => res.json())
+      .then(data => setCursos(data.cursos || []));
+  }, [user]);
 
   const handleEditClick = () => {
     setEditData({ ...user });
@@ -124,6 +158,10 @@ export default function Perfil() {
     const [year, month, day] = fecha.split("-");
     return `${day}/${month}/${year}`;
   };
+
+  if (user === null) {
+    return <div className="flex justify-center items-center min-h-screen text-lg">No se pudo cargar el perfil o no has iniciado sesión.</div>;
+  }
 
   return (
     <div className="flex flex-col min-h-screen px-4 py-8 sm:px-20 sm:py-20 font-sans bg-gray-50">
@@ -258,7 +296,7 @@ export default function Perfil() {
         </div>
         {/* Info personal */}
         <div className="flex-1 flex flex-col justify-center">
-          <h1 className="text-3xl font-bold mb-6">Mi perfil</h1>
+          <h1 className="text-3xl font-bold mb-6">{perfilId ? `Perfil de @${perfilId}` : "Mi perfil"}</h1>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
               <div className="text-gray-500 text-xs uppercase mb-1">Nombre</div>
@@ -271,47 +309,35 @@ export default function Perfil() {
           </div>
         </div>
       </section>
-      {/* Cursos (puedes completar con info real si la tienes) */}
+      {/* Cursos reales */}
       <section className="max-w-5xl w-full mx-auto">
         <h2 className="text-2xl font-bold mb-8">Cursos</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
-          <div className="flex flex-col items-center bg-white rounded-xl shadow p-4">
-            <div className="w-28 h-28 rounded-lg overflow-hidden mb-3">
-              <Avatar className="w-28 h-28">
-                <AvatarImage src="/curso-python.jpg" alt="Python" />
-                <AvatarFallback>Python</AvatarFallback>
-              </Avatar>
-            </div>
-            <span className="text-center text-base font-medium">Python de Cero a Experto</span>
+        {cursos.length === 0 ? (
+          <div className="text-gray-500">No hay cursos matriculados.</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
+            {cursos.map((curso) => (
+              <div
+                key={curso._id}
+                className="flex flex-col items-center bg-white rounded-xl shadow p-4 cursor-pointer hover:bg-blue-50 transition"
+                onClick={() => router.push(`/menu/portal-docente/cursos?id=${curso._id}`)}
+                title={curso.nombreCurso}
+              >
+                <div className="w-28 h-28 rounded-lg overflow-hidden mb-3">
+                  <Avatar className="w-28 h-28">
+                    {curso.foto ? (
+                      <AvatarImage src={curso.foto} alt={curso.nombreCurso} />
+                    ) : (
+                      <AvatarFallback>{curso.nombreCurso?.[0]?.toUpperCase() || "C"}</AvatarFallback>
+                    )}
+                  </Avatar>
+                </div>
+                <span className="text-center text-base font-medium line-clamp-2">{curso.nombreCurso}</span>
+                <span className="text-xs text-gray-500 mt-1">{curso.nombreUsuarioDocente && `Docente: ${curso.nombreUsuarioDocente}`}</span>
+              </div>
+            ))}
           </div>
-          <div className="flex flex-col items-center bg-white rounded-xl shadow p-4">
-            <div className="w-28 h-28 rounded-lg overflow-hidden mb-3">
-              <Avatar className="w-28 h-28">
-                <AvatarImage src="/curso-japones.jpg" alt="Japonés" />
-                <AvatarFallback>Japonés</AvatarFallback>
-              </Avatar>
-            </div>
-            <span className="text-center text-base font-medium">Japonés desde Cero</span>
-          </div>
-          <div className="flex flex-col items-center bg-white rounded-xl shadow p-4">
-            <div className="w-28 h-28 rounded-lg overflow-hidden mb-3">
-              <Avatar className="w-28 h-28">
-                <AvatarImage src="/curso-dj.jpg" alt="DJ" />
-                <AvatarFallback>DJ</AvatarFallback>
-              </Avatar>
-            </div>
-            <span className="text-center text-base font-medium">DJ y Producción Musical</span>
-          </div>
-          <div className="flex flex-col items-center bg-white rounded-xl shadow p-4">
-            <div className="w-28 h-28 rounded-lg overflow-hidden mb-3">
-              <Avatar className="w-28 h-28">
-                <AvatarImage src="/curso-x.jpg" alt="Curso X" />
-                <AvatarFallback>Curso X</AvatarFallback>
-              </Avatar>
-            </div>
-            <span className="text-center text-base font-medium">Curso X</span>
-          </div>
-        </div>
+        )}
       </section>
     </div>
   );
