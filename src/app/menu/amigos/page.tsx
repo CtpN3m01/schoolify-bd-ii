@@ -194,22 +194,38 @@ export default function Amigos() {
                 </div>
               )}
             </div>
-          </TabsContent>
-          <TabsContent value="solicitudes">
+          </TabsContent>          <TabsContent value="solicitudes">
             <div className="mb-4">
-              <Input
-                type="search"
-                placeholder="Buscar usuario por username..."
-                value={searchUsername}
-                onChange={e => setSearchUsername(e.target.value)}
-                className="w-full mb-2"
-                onKeyDown={e => { if (e.key === 'Enter') handleSearchUser(); }}
-              />
-              <button
-                className="mb-4 px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-60"
-                onClick={handleSearchUser}
-                disabled={searching || !searchUsername}
-              >Buscar usuario</button>
+              <div className="flex gap-2 mb-4">
+                <Input
+                  type="search"
+                  placeholder="Buscar usuario por username..."
+                  value={searchUsername}
+                  onChange={e => setSearchUsername(e.target.value)}
+                  className="flex-1"
+                  onKeyDown={e => { if (e.key === 'Enter') handleSearchUser(); }}
+                />
+                <button
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-60 text-sm"
+                  onClick={handleSearchUser}
+                  disabled={searching || !searchUsername}
+                >
+                  {searching ? 'Buscando...' : 'Buscar'}
+                </button>
+                <button
+                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-60 text-sm"
+                  onClick={() => {
+                    setLoadingSolicitudes(true);
+                    fetch(`/api/neo4jDB/solicitudes-pendientes?userId=${currentUserId}`)
+                      .then(res => res.json())
+                      .then(data => setSolicitudes(data.solicitudes || []))
+                      .finally(() => setLoadingSolicitudes(false));
+                  }}
+                  disabled={loadingSolicitudes}
+                >
+                  {loadingSolicitudes ? 'Actualizando...' : 'Actualizar Solicitudes'}
+                </button>
+              </div>
               {searching && <div className="text-sm text-muted-foreground">Buscando...</div>}
               {searchError && <div className="text-sm text-destructive">{searchError}</div>}
               {searchResult && (
@@ -436,10 +452,9 @@ function FriendCard({ id, name, username, avatar, status, description, universit
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-          </>
-        )}        <button
+          </>        )}        <button
           className="text-xs bg-blue-600 text-white hover:bg-blue-700 transition-colors px-3 py-1.5 rounded"
-          onClick={() => router.push(`/menu/perfil?id=${username || id}`)}
+          onClick={() => router.push(`/menu/perfil?id=${username}`)}
         >Ver perfil</button>
       </div>
     </Card>
