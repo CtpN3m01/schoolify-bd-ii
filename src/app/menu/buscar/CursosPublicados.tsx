@@ -9,7 +9,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useUser } from "@/app/UserContext";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface Curso {
   _id: string;
@@ -30,14 +32,31 @@ export default function CursosPublicados() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [modulos, setModulos] = useState<any[]>([]);
   const [openModulo, setOpenModulo] = useState<number | null>(null);
-  const [openSubseccion, setOpenSubseccion] = useState<{ mod: number; sub: number } | null>(null);
-  const [matriculando, setMatriculando] = useState(false);
+  const [openSubseccion, setOpenSubseccion] = useState<{ mod: number; sub: number } | null>(null);  const [matriculando, setMatriculando] = useState(false);
   const [matriculaExitosa, setMatriculaExitosa] = useState(false);
+  const [enrolledCourses, setEnrolledCourses] = useState<string[]>([]);
+  const [loadingModulos, setLoadingModulos] = useState(false);
   const router = useRouter();
-
-  const handleCursoClick = async (curso: Curso) => {
+  const searchParams = useSearchParams();
+  const { user } = useUser();  const handleCursoClick = async (curso: Curso) => {
     setSelectedCurso(curso);
     setDetailOpen(true);
+    setLoadingModulos(true);
+    
+    // Verificar si el usuario está matriculado en este curso
+    if (user?._id && !enrolledCourses.includes(curso._id)) {
+      try {
+        const response = await fetch(`/api/neo4jDB/cursos-matriculados?userId=${user._id}`);
+        const result = await response.json();
+        const enrolledIds = (result.cursos || []).map((c: any) => c._id);
+        
+        // Actualizar la lista de cursos matriculados
+        setEnrolledCourses(enrolledIds);
+      } catch (error) {
+        console.error('Error checking enrollment:', error);
+      }
+    }
+    
     try {
       const res = await fetch('/api/mongoDB/cursos/get_cursos');
       const data = await res.json();
@@ -45,9 +64,10 @@ export default function CursosPublicados() {
       setModulos(cursoDB?.contenido || []);
     } catch (e) {
       setModulos([]);
+    } finally {
+      setLoadingModulos(false);
     }
   };
-
   const handleMatricularse = async () => {
     if (!selectedCurso) return;
     setMatriculando(true);
@@ -67,6 +87,8 @@ export default function CursosPublicados() {
       });
       if (!res.ok) throw new Error((await res.json()).message || "Error al matricularse");
       setMatriculaExitosa(true);
+      // Actualizar la lista de cursos matriculados
+      await fetchEnrolledCourses();
     } catch (e) {
       const msg = typeof e === 'object' && e && 'message' in e ? (e as any).message : String(e);
       alert(msg || "Error al matricularse");
@@ -75,6 +97,21 @@ export default function CursosPublicados() {
     }
   };
 
+  const fetchEnrolledCourses = async () => {
+    if (!user?._id) return;
+    try {
+      const response = await fetch(`/api/neo4jDB/cursos-matriculados?userId=${user._id}`);
+      const result = await response.json();
+      const enrolledIds = (result.cursos || []).map((curso: any) => curso._id);
+      setEnrolledCourses(enrolledIds);
+    } catch (error) {
+      console.error('Error fetching enrolled courses:', error);
+    }
+  };
+
+  const isEnrolledInCourse = (cursoId: string) => {
+    return enrolledCourses.includes(cursoId);
+  };
   useEffect(() => {
     const fetchCursos = async () => {
       try {
@@ -88,6 +125,25 @@ export default function CursosPublicados() {
     };
     fetchCursos();
   }, []);
+
+  useEffect(() => {
+    if (user?._id) {
+      fetchEnrolledCourses();
+    }
+  }, [user]);  // Nuevo useEffect para manejar cursoId desde URL
+  useEffect(() => {
+    if (!searchParams) return;
+    const cursoId = searchParams.get('cursoId');
+    if (cursoId && cursos.length > 0) {
+      const curso = cursos.find(c => c._id === cursoId);
+      if (curso) {
+        handleCursoClick(curso);
+        // Limpiar el parámetro de la URL después de abrir el diálogo
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+      }
+    }
+  }, [cursos, searchParams]);
 
   const cursosFiltrados = cursos.filter(curso =>
     curso.nombreCurso.toLowerCase().includes(searchTerm.toLowerCase())
@@ -165,17 +221,52 @@ export default function CursosPublicados() {
                     <Image src={selectedCurso.foto} alt={selectedCurso.nombreCurso} width={320} height={180} className="rounded-md object-cover max-h-40 w-full" />
                   </div>
                 )}
-              </div>
-              <div className="flex flex-wrap gap-4 mb-4 items-end">
-                <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={handleMatricularse} disabled={matriculando || matriculaExitosa}>
-                  {matriculando ? 'Matriculando...' : matriculaExitosa ? '¡Matriculado!' : 'Matricularse'}
-                </Button>
-              </div>
-              <ScrollArea className="h-[60vh] w-full pr-2">
+              </div>              <div className="flex flex-wrap gap-4 mb-4 items-end">
+                {/* No mostrar botón si el usuario es el docente del curso */}
+                {user?.nombreUsuario !== selectedCurso.nombreUsuarioDocente && (
+                  <>
+                    {isEnrolledInCourse(selectedCurso._id) ? (
+                      <Button className="bg-green-600 hover:bg-green-700 text-white" disabled>
+                        Matriculado
+                      </Button>
+                    ) : (
+                      <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={handleMatricularse} disabled={matriculando || matriculaExitosa}>
+                        {matriculando ? 'Matriculando...' : matriculaExitosa ? '¡Matriculado!' : 'Matricularse'}
+                      </Button>
+                    )}
+                  </>
+                )}
+                {/* Mostrar mensaje informativo si es el docente */}
+                {user?.nombreUsuario === selectedCurso.nombreUsuarioDocente && (
+                  <div className="bg-blue-50 border border-blue-200 rounded px-4 py-2">
+                    <span className="text-blue-700 font-medium">Eres el docente de este curso</span>
+                  </div>
+                )}
+              </div><ScrollArea className="h-[60vh] w-full pr-2">
                 <div className="mb-4">
                   <h3 className="font-semibold mb-2">Módulos/Secciones</h3>
-                  <ul className="mb-2 space-y-2">
-                    {modulos.map((mod, i) => (
+                  {loadingModulos ? (
+                    <div className="space-y-3">
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} className="border rounded">
+                          <div className="px-4 py-2 bg-gray-100 rounded-t">
+                            <Skeleton className="h-5 w-40" />
+                          </div>
+                          <div className="p-4 space-y-2">
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-4 w-3/4" />
+                            <div className="space-y-1">
+                              <Skeleton className="h-3 w-32" />
+                              <Skeleton className="h-3 w-48" />
+                              <Skeleton className="h-3 w-36" />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <ul className="mb-2 space-y-2">
+                      {modulos.map((mod, i) => (
                       <li key={i} className="border rounded">
                         <Collapsible open={openModulo === i} onOpenChange={open => setOpenModulo(open ? i : null)}>
                           <CollapsibleTrigger className="w-full flex justify-between items-center px-4 py-2 cursor-pointer bg-gray-100 rounded-t">
@@ -239,11 +330,11 @@ export default function CursosPublicados() {
                                 </ul>
                               </ScrollArea>
                             )}
-                          </CollapsibleContent>
-                        </Collapsible>
+                          </CollapsibleContent>                        </Collapsible>
                       </li>
                     ))}
-                  </ul>
+                    </ul>
+                  )}
                 </div>
               </ScrollArea>
             </div>

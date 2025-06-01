@@ -454,7 +454,7 @@ function FriendCard({ id, name, username, avatar, status, description, universit
             </Dialog>
           </>        )}        <button
           className="text-xs bg-blue-600 text-white hover:bg-blue-700 transition-colors px-3 py-1.5 rounded"
-          onClick={() => router.push(`/menu/perfil?id=${username}`)}
+          onClick={() => router.push(`/menu/perfil?id=${username || id}`)}
         >Ver perfil</button>
       </div>
     </Card>

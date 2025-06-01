@@ -11,13 +11,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ message: 'Falta userId' });
   }
   const driver = connectNeo4j();
-  const session = driver.session();
-  try {
+  const session = driver.session();  try {
     const result = await session.run(
-      `MATCH (u:Usuario {_id: $userId})-[:MATRICULADO_EN]->(c:Curso {_id: c._id})
+      `MATCH (u:Usuario {_id: $userId})-[:MATRICULADO_EN]->(c:Curso)
        RETURN c._id AS _id, c.nombreCurso AS nombreCurso, c.descripcion AS descripcion, c.foto AS foto, c.fechaInicio AS fechaInicio, c.fechaFin AS fechaFin, c.estado AS estado, c.nombreUsuarioDocente AS nombreUsuarioDocente`,
       { userId }
     );
+    
     const cursos = result.records.map(r => ({
       _id: r.get('_id'),
       nombreCurso: r.get('nombreCurso'),
@@ -28,6 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       estado: r.get('estado'),
       nombreUsuarioDocente: r.get('nombreUsuarioDocente'),
     }));
+    
     res.status(200).json({ cursos });
   } catch (error) {
     res.status(500).json({ message: 'Error obteniendo cursos matriculados', error: (error as Error).message });

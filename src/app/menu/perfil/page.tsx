@@ -9,12 +9,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useUser } from "@/app/UserContext";
+import { MessageCircle } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 
 export default function Perfil() {
   const [user, setUser] = useState<any>(null);
+  const [loadingUser, setLoadingUser] = useState(true);
   const [open, setOpen] = useState(false);
   const [editData, setEditData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -26,19 +30,20 @@ export default function Perfil() {
   const [imageUrl, setImageUrl] = useState('');
   const avatarRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);  const router = useRouter();
-  const searchParams = useSearchParams();
-  const [cursos, setCursos] = useState<any[]>([]);
+  const searchParams = useSearchParams();  const [cursos, setCursos] = useState<any[]>([]);
   const [cursosDocente, setCursosDocente] = useState<any[]>([]);
+  const [loadingCursos, setLoadingCursos] = useState(true);
+  const [loadingCursosDocente, setLoadingCursosDocente] = useState(true);
   const { user: currentUser } = useUser();
 
   // Mover hooks aquí para asegurar que se usan solo en el cliente
   // Permitir ver perfil propio o ajeno (por id en query param)
   const perfilId = typeof window !== 'undefined' && searchParams ? searchParams.get("id") : null;
   const isOwnProfile = !perfilId || (currentUser && currentUser.nombreUsuario === perfilId);
-
   useEffect(() => {
     // Si hay id en query param, buscar ese usuario, si no, el propio
     const fetchUser = async () => {
+      setLoadingUser(true);
       if (perfilId) {
         // Buscar usuario por username (perfil ajeno)
         const res = await fetch(`/api/neo4jDB/buscar-usuario-por-username?username=${perfilId}&userId=0`);
@@ -58,25 +63,30 @@ export default function Perfil() {
           setUser(null);
         }
       }
+      setLoadingUser(false);
     };
     fetchUser();
-  }, [perfilId]);
-  useEffect(() => {
+  }, [perfilId]);  useEffect(() => {
     if (!user) return;
     // Obtener cursos matriculados desde Neo4j solo si hay identificador
     const userNeoId = user._id || user.id || user.nombreUsuario;
     if (!userNeoId) return;
     
+    setLoadingCursos(true);
+    setLoadingCursosDocente(true);
+    
     // Cursos matriculados
     fetch(`/api/neo4jDB/cursos-matriculados?userId=${userNeoId}`)
       .then(res => res.json())
-      .then(data => setCursos(data.cursos || []));
+      .then(data => setCursos(data.cursos || []))
+      .finally(() => setLoadingCursos(false));
     
     // Cursos como docente (buscar en MongoDB)
     fetch(`/api/mongoDB/cursos/obtener-cursos-docente?nombreUsuario=${user.nombreUsuario}`)
       .then(res => res.json())
       .then(data => setCursosDocente(data.cursos || []))
-      .catch(() => setCursosDocente([]));
+      .catch(() => setCursosDocente([]))
+      .finally(() => setLoadingCursosDocente(false));
   }, [user]);
 
   const handleEditClick = () => {
@@ -167,8 +177,54 @@ export default function Perfil() {
   const formatFecha = (fecha: string) => {
     if (!fecha) return "-";
     const [year, month, day] = fecha.split("-");
-    return `${day}/${month}/${year}`;
-  };
+    return `${day}/${month}/${year}`;  };
+
+  if (loadingUser) {
+    return (
+      <div className="flex flex-col min-h-screen px-4 py-8 sm:px-20 sm:py-20 font-sans bg-gray-50">
+        {/* Skeleton del Card principal de perfil */}
+        <section className="max-w-3xl w-full mx-auto bg-white rounded-2xl shadow-md p-8 flex flex-col sm:flex-row gap-8 mb-16">
+          {/* Skeleton Avatar y acciones */}
+          <div className="flex flex-col items-center sm:items-start">
+            <Skeleton className="w-32 h-32 rounded-full mb-4" />
+            <Skeleton className="h-4 w-24 mb-1" />
+            <Skeleton className="h-3 w-20 mb-4" />
+            <Skeleton className="h-10 w-24" />
+          </div>
+          {/* Skeleton Info personal */}
+          <div className="flex-1 flex flex-col justify-center">
+            <Skeleton className="h-8 w-48 mb-6" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div>
+                <Skeleton className="h-3 w-12 mb-1" />
+                <Skeleton className="h-6 w-32" />
+              </div>
+              <div>
+                <Skeleton className="h-3 w-20 mb-1" />
+                <Skeleton className="h-6 w-28" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Skeleton Tabs de cursos */}
+        <section className="max-w-6xl w-full mx-auto">
+          <div className="mb-6">
+            <Skeleton className="h-10 w-80" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex flex-col items-center bg-white rounded-xl shadow p-4">
+                <Skeleton className="w-28 h-28 rounded-lg mb-3" />
+                <Skeleton className="h-4 w-24 mb-2" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   if (user === null) {
     return <div className="flex justify-center items-center min-h-screen text-lg">No se pudo cargar el perfil o no has iniciado sesión.</div>;
@@ -328,20 +384,30 @@ export default function Perfil() {
             <TabsTrigger value="matriculados">Cursos Matriculados</TabsTrigger>
             <TabsTrigger value="docente">Cursos como Docente</TabsTrigger>
           </TabsList>
-          
-          <TabsContent value="matriculados" className="mt-6">
-            {cursos.length === 0 ? (
+            <TabsContent value="matriculados" className="mt-6">
+            {loadingCursos ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="flex flex-col items-center bg-white rounded-xl shadow p-4">
+                    <Skeleton className="w-28 h-28 rounded-lg mb-3" />
+                    <Skeleton className="h-4 w-24 mb-2" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
+                ))}
+              </div>
+            ) : cursos.length === 0 ? (
               <div className="text-gray-500">No hay cursos matriculados.</div>
-            ) : (              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
-                {cursos.map((curso) => (
-                  <div
+            ) : (<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
+                {cursos.map((curso) => (                  <div
                     key={curso._id}
                     className="flex flex-col items-center bg-white rounded-xl shadow p-4 cursor-pointer hover:bg-blue-50 transition"
                     onClick={() => {
                       if (isOwnProfile) {
-                        router.push(`/menu/portal-docente/cursos?id=${curso._id}`);
+                        // Perfil propio - cursos matriculados van a principal
+                        router.push(`/menu/principal?cursoId=${curso._id}`);
                       } else {
-                        router.push('/menu/buscar');
+                        // Perfil ajeno - cualquier curso va a buscar
+                        router.push(`/menu/buscar?cursoId=${curso._id}`);
                       }
                     }}
                     title={curso.nombreCurso}
@@ -362,20 +428,30 @@ export default function Perfil() {
               </div>
             )}
           </TabsContent>
-          
-          <TabsContent value="docente" className="mt-6">
-            {cursosDocente.length === 0 ? (
+            <TabsContent value="docente" className="mt-6">
+            {loadingCursosDocente ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="flex flex-col items-center bg-white rounded-xl shadow p-4">
+                    <Skeleton className="w-28 h-28 rounded-lg mb-3" />
+                    <Skeleton className="h-4 w-24 mb-2" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
+                ))}
+              </div>
+            ) : cursosDocente.length === 0 ? (
               <div className="text-gray-500">No es docente de ningún curso.</div>
-            ) : (              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
-                {cursosDocente.map((curso) => (
-                  <div
+            ) : (<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
+                {cursosDocente.map((curso) => (                  <div
                     key={curso._id}
                     className="flex flex-col items-center bg-white rounded-xl shadow p-4 cursor-pointer hover:bg-green-50 transition"
                     onClick={() => {
                       if (isOwnProfile) {
-                        router.push(`/menu/portal-docente/cursos?id=${curso._id}`);
+                        // Perfil propio - cursos como docente van a portal-docente
+                        router.push(`/menu/portal-docente/cursos?cursoId=${curso._id}`);
                       } else {
-                        router.push('/menu/buscar');
+                        // Perfil ajeno - cualquier curso va a buscar
+                        router.push(`/menu/buscar?cursoId=${curso._id}`);
                       }
                     }}
                     title={curso.nombreCurso}

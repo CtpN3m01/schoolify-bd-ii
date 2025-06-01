@@ -2,12 +2,13 @@
 
 import { useRef, useEffect, useState, createRef } from "react";
 import Image from "next/image";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, X } from "lucide-react";
+import { Search, X, Upload, User, Plus, ChevronDown, ChevronUp, Trash2, Edit, Eye } from "lucide-react";
 import {
   Pagination,
   PaginationContent,
@@ -17,8 +18,11 @@ import {
   PaginationNext,
 } from "@/components/ui/pagination";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogCancel, AlertDialogAction, AlertDialogDescription } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 
 interface Curso {
   _id: string;
@@ -43,8 +47,8 @@ export default function Cursos() {
     fechaFin: '',
     foto: '',
     estado: 'Activo',
-  });
-  const [saving, setSaving] = useState(false);
+  });  const [saving, setSaving] = useState(false);
+  const [uploadingFoto, setUploadingFoto] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // Filtrar cursos según búsqueda
   const filteredCursos = cursos.filter((curso) =>
@@ -63,9 +67,14 @@ export default function Cursos() {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setForm({ ...form, [name]: value });
+    
+    // Si es el campo foto (URL), actualizar el preview
+    if (name === 'foto') {
+      setPreviewFoto(value);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -99,6 +108,9 @@ export default function Cursos() {
       .then(data => setUser(data.user));
   }, []);
 
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
   useEffect(() => {
     if (!user) return;
     // Obtener todos los cursos creados por el docente, sin importar el estado
@@ -116,20 +128,34 @@ export default function Cursos() {
     };
     fetchCursos();
   }, [user]);
+  // Auto-abrir diálogo del curso si viene cursoId en la URL
+  useEffect(() => {
+    if (!searchParams) return;
+    const cursoId = searchParams.get('cursoId');
+    if (cursoId && cursos.length > 0) {
+      const curso = cursos.find(c => c._id === cursoId);
+      if (curso) {
+        handleCursoClick(curso);
+        // Limpiar el parámetro de la URL
+        const url = new URL(window.location.href);
+        url.searchParams.delete('cursoId');
+        router.replace(url.pathname + url.search);
+      }
+    }
+  }, [cursos, searchParams, router]);
 
   const [selectedCurso, setSelectedCurso] = useState<Curso | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   // Estructura de módulos/secciones por curso (en memoria, para demo; en real, vendría de la API)
-  const [modulos, setModulos] = useState<{ [cursoId: string]: any[] }>({});
+  const [modulos, setModulos] = useState<{ [cursoId: string]: any[] }>({});  const [loadingModulos, setLoadingModulos] = useState(false);
   const [nuevoModulo, setNuevoModulo] = useState({ nombre: '', descripcion: '', contenidos: [] as any[] });
   const [nuevoContenido, setNuevoContenido] = useState({ tipo: 'texto', valor: '' });
   const [changingState, setChangingState] = useState(false);
-  const [nuevoEstado, setNuevoEstado] = useState('');
-
   // Al hacer click en un curso, abrir modal de detalle y cargar módulos desde MongoDB
   const handleCursoClick = async (curso: Curso) => {
     setSelectedCurso(curso);
     setDetailOpen(true);
+    setLoadingModulos(true);
     // Cargar módulos/secciones desde el campo contenido
     try {
       const res = await fetch('/api/mongoDB/cursos/get_cursos');
@@ -142,6 +168,8 @@ export default function Cursos() {
     } catch (e) {
       // Si falla, dejar vacío
       setModulos((prev) => ({ ...prev, [curso._id]: [] }));
+    } finally {
+      setLoadingModulos(false);
     }
   };
 
@@ -280,31 +308,7 @@ export default function Cursos() {
         [selectedCurso._id]: cursoDB?.contenido || []
       }));
     } catch (e) {}
-    setInputsContenido((prev) => ({ ...prev, [key]: { tipo: 'texto', valor: '', titulo: '' } }));
-  };
-
-  // Cambiar estado del curso (asegurar que esté definida)
-  const handleCambiarEstado = async () => {
-    if (!selectedCurso || !nuevoEstado) return;
-    setChangingState(true);
-    try {
-      // Llamada a la API de Redis para cambiar estado y sincronizar con Mongo
-      await fetch(`/api/redisDB/cambiarEstadoCurso/${selectedCurso._id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado: nuevoEstado }),
-      });
-      // Refrescar cursos
-      const response = await fetch('/api/mongoDB/cursos/get_cursos');
-      const result = await response.json();
-      const cursosDocente = (result.cursos || []).filter((curso: Curso) => curso.nombreUsuarioDocente === user?.nombreUsuario);
-      setCursos(cursosDocente);
-      setDetailOpen(false);
-    } finally {
-      setChangingState(false);
-      setNuevoEstado('');
-    }
-  };
+    setInputsContenido((prev) => ({ ...prev, [key]: { tipo: 'texto', valor: '', titulo: '' } }));  };
 
   // Utilidad para limpiar _id y campos temporales de módulos, subsecciones y contenidos
   function limpiarModulosParaMongo(modulos: any[]) {
@@ -421,19 +425,18 @@ export default function Cursos() {
   const pedirConfirmarEliminarModulo = (modIndex: number) => setConfirmDialog({ type: 'modulo', modIndex });
   const pedirConfirmarEliminarSubseccion = (modIndex: number, subIndex: number) => setConfirmDialog({ type: 'subseccion', modIndex, subIndex });
   const pedirConfirmarEliminarContenido = (modIndex: number, contIndex: number, subIndex?: number) => setConfirmDialog({ type: 'contenido', modIndex, contIndex, subIndex });
-
   // Estado para edición rápida del curso seleccionado
   const [editForm, setEditForm] = useState({
     nombreCurso: '',
     descripcion: '',
     fechaInicio: '',
     fechaFin: '',
-    foto: ''
+    foto: '',
+    estado: 'Activo'
   });
   // Estados para archivo y preview de imagen en edición de curso
   const [fileEditFoto, setFileEditFoto] = useState<File | null>(null);
   const [previewEditFoto, setPreviewEditFoto] = useState<string>("");
-
   // Sincronizar editForm y preview al seleccionar curso
   useEffect(() => {
     if (selectedCurso) {
@@ -442,7 +445,8 @@ export default function Cursos() {
         descripcion: selectedCurso.descripcion || '',
         fechaInicio: selectedCurso.fechaInicio || '',
         fechaFin: selectedCurso.fechaFin || '',
-        foto: selectedCurso.foto || ''
+        foto: selectedCurso.foto || '',
+        estado: selectedCurso.estado || 'Activo'
       });
       setPreviewEditFoto(selectedCurso.foto || "");
       setFileEditFoto(null);
@@ -450,16 +454,54 @@ export default function Cursos() {
   }, [selectedCurso]);
 
   // Estado para preview de imagen de curso
-  const [previewFoto, setPreviewFoto] = useState<string>("");
-  const handleFotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [previewFoto, setPreviewFoto] = useState<string>("");  const handleFotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Validar tipo de archivo
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor selecciona una imagen válida');
+      return;
+    }
+
+    // Validar tamaño (máximo 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('La imagen no puede ser mayor a 5MB');
+      return;
+    }
+
     try {
+      setUploadingFoto(true);
+      
+      // Crear vista previa
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPreviewFoto(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+
+      // Subir archivo
       const url = await uploadArchivo(file);
       setForm(f => ({ ...f, foto: url }));
-      setPreviewFoto(url);
-    } catch {
-      // Manejo de error opcional
+    } catch (error: any) {
+      alert(error.message || 'Error al subir la imagen');
+      setPreviewFoto("");
+    } finally {
+      setUploadingFoto(false);
+    }
+  };
+
+  // Función para obtener el color del badge según el estado
+  const getBadgeVariant = (estado: string) => {
+    switch (estado) {
+      case 'Publicado':
+        return 'default'; // Verde
+      case 'Activo':
+        return 'secondary'; // Gris
+      case 'Inactivo':
+        return 'destructive'; // Rojo
+      default:
+        return 'secondary';
     }
   };
 
@@ -510,11 +552,12 @@ export default function Cursos() {
                 )}
                 <CardHeader>
                   <CardTitle>{curso.nombreCurso}</CardTitle>
-                </CardHeader>
-                <CardContent className="flex-1 flex flex-col justify-between">
+                </CardHeader>                <CardContent className="flex-1 flex flex-col justify-between">
                   <p className="text-sm text-muted-foreground mb-2">{curso.descripcion}</p>
-                  <div className="text-xs text-gray-500 mt-auto">
-                    Estado: {curso.estado || 'Edición'}
+                  <div className="mt-auto">
+                    <Badge variant={getBadgeVariant(curso.estado || 'Activo')}>
+                      {curso.estado || 'Edición'}
+                    </Badge>
                   </div>
                 </CardContent>
               </Card>
@@ -557,51 +600,25 @@ export default function Cursos() {
         {/* Mostrar info y edición del curso seleccionado directamente aquí */}
         {selectedCurso && (
           <div className="mt-8 border-4 border-blue-600 rounded-2xl shadow-2xl bg-white p-8 mb-8 transition-all duration-200">
-            <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <h2 className="text-xl font-bold mb-2">{selectedCurso.nombreCurso}</h2>
+            <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <h2 className="text-xl font-bold">{selectedCurso.nombreCurso}</h2>
+                  <Badge variant={getBadgeVariant(selectedCurso.estado || 'Activo')}>
+                    {selectedCurso.estado || 'Edición'}
+                  </Badge>
+                </div>
                 <p className="mb-2 text-gray-700"><span className="font-semibold">Descripción:</span> {selectedCurso.descripcion}</p>
                 <div className="mb-2 text-gray-700"><span className="font-semibold">Fecha inicio:</span> {selectedCurso.fechaInicio}</div>
                 <div className="mb-2 text-gray-700"><span className="font-semibold">Fecha fin:</span> {selectedCurso.fechaFin}</div>
-                <div className="mb-2 text-gray-700"><span className="font-semibold">Estado actual:</span> <span className="font-semibold">{selectedCurso.estado || 'Edición'}</span></div>
               </div>
               {selectedCurso.foto && (
                 <div className="flex items-center justify-center">
                   <Image src={selectedCurso.foto} alt={selectedCurso.nombreCurso} width={320} height={180} className="rounded-md object-cover max-h-40 w-full" />
                 </div>
               )}
-            </div>
-            {/* Botón para publicar curso y editar info */}
+            </div>            {/* Formulario de edición rápida */}
             <div className="flex flex-wrap gap-4 mb-4 items-end">
-              {/* Botón publicar */}
-              {selectedCurso.estado !== 'Publicado' && (
-                <Button
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                  disabled={changingState}
-                  onClick={async () => {
-                    setChangingState(true);
-                    try {
-                      await fetch(`/api/redisDB/cambiarEstadoCurso/${selectedCurso._id}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ estado: 'Publicado' }),
-                      });
-                      // Refrescar cursos
-                      const response = await fetch('/api/mongoDB/cursos/get_cursos');
-                      const result = await response.json();
-                      const cursosDocente = (result.cursos || []).filter((curso: any) => curso.nombreUsuarioDocente === user?.nombreUsuario);
-                      setCursos(cursosDocente);
-                      setSelectedCurso(cursosDocente.find((c: any) => c._id === selectedCurso._id) || null);
-                    } finally {
-                      setChangingState(false);
-                    }
-                  }}
-                >
-                  {changingState ? 'Publicando...' : 'Publicar curso'}
-                </Button>
-              )}
-              {/* Formulario de edición rápida */}
-              <form className="flex flex-wrap gap-2 items-end" onSubmit={async e => {
+              {/* Formulario de edición rápida */}              <form className="flex flex-wrap gap-2 items-end" onSubmit={async e => {
                 e.preventDefault();
                 if (!selectedCurso) return;
                 setChangingState(true);
@@ -610,6 +627,8 @@ export default function Cursos() {
                   if (fileEditFoto) {
                     fotoUrl = await uploadArchivo(fileEditFoto);
                   }
+                  
+                  // Actualizar curso en MongoDB
                   await fetch(`/api/mongoDB/cursos/editar_curso/${selectedCurso._id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -621,6 +640,16 @@ export default function Cursos() {
                       foto: fotoUrl
                     })
                   });
+                  
+                  // Si el estado cambió, también actualizarlo
+                  if (editForm.estado !== selectedCurso.estado) {
+                    await fetch(`/api/redisDB/cambiarEstadoCurso/${selectedCurso._id}`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ estado: editForm.estado }),
+                    });
+                  }
+                  
                   // Refrescar cursos
                   const response = await fetch('/api/mongoDB/cursos/get_cursos');
                   const result = await response.json();
@@ -634,7 +663,7 @@ export default function Cursos() {
                 }
               }}>
                 <div className="flex flex-col">
-                  <label className="font-medium" htmlFor="edit-nombreCurso">Título del curso</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="edit-nombreCurso">Título del curso</label>
                   <Input
                     id="edit-nombreCurso"
                     className="w-40"
@@ -645,7 +674,7 @@ export default function Cursos() {
                   />
                 </div>
                 <div className="flex flex-col">
-                  <label className="font-medium" htmlFor="edit-descripcion">Descripción</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="edit-descripcion">Descripción</label>
                   <Input
                     id="edit-descripcion"
                     className="w-40"
@@ -656,7 +685,7 @@ export default function Cursos() {
                   />
                 </div>
                 <div className="flex flex-col">
-                  <label className="font-medium" htmlFor="edit-fechaInicio">Fecha de inicio</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="edit-fechaInicio">Fecha de inicio</label>
                   <Input
                     id="edit-fechaInicio"
                     type="date"
@@ -667,7 +696,17 @@ export default function Cursos() {
                   />
                 </div>
                 <div className="flex flex-col">
-                  <label className="font-medium" htmlFor="edit-fechaFin">Fecha de fin</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="edit-fechaFin">Fecha de fin</label>
+                  <Input
+                    id="edit-fechaFin"
+                    type="date"
+                    className="w-36"
+                    value={editForm.fechaFin}
+                    onChange={e => setEditForm(f => ({ ...f, fechaFin: e.target.value }))}
+                    required
+                  />
+                </div>                <div className="flex flex-col">
+                  <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="edit-fechaFin">Fecha de fin</label>
                   <Input
                     id="edit-fechaFin"
                     type="date"
@@ -678,7 +717,20 @@ export default function Cursos() {
                   />
                 </div>
                 <div className="flex flex-col">
-                  <label className="font-medium" htmlFor="edit-foto">Imagen del curso</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="edit-estado">Estado</label>
+                  <select
+                    id="edit-estado"
+                    className="w-32 h-10 px-3 py-2 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={editForm.estado}
+                    onChange={e => setEditForm(f => ({ ...f, estado: e.target.value }))}
+                  >
+                    <option value="Activo">Activo</option>
+                    <option value="Inactivo">Inactivo</option>
+                    <option value="Publicado">Publicado</option>
+                  </select>
+                </div>
+                <div className="flex flex-col">
+                  <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="edit-foto">Imagen del curso</label>
                   <div className="flex gap-2 items-center">
                     <input
                       type="file"
@@ -700,39 +752,30 @@ export default function Cursos() {
                       <img src={editForm.foto} alt="Preview" className="h-12 w-20 object-cover rounded ml-2 border" />
                     ) : null}
                   </div>
-                </div>
-                <Button type="submit" disabled={changingState} className="bg-blue-600 hover:bg-blue-700 text-white mt-5">
+                </div>                <Button type="submit" disabled={changingState} className="bg-blue-600 hover:bg-blue-700 text-white mt-5">
                   {changingState ? 'Guardando...' : 'Guardar cambios'}
                 </Button>
               </form>
-              {/* Cambiar estado */}
-              <div className="flex items-end gap-2">
-                <div>
-                  <label className="block mb-1 font-medium">Cambiar estado:</label>
-                  <select
-                    className="border rounded px-2 py-1"
-                    value={nuevoEstado}
-                    onChange={e => setNuevoEstado(e.target.value)}
-                    disabled={changingState}
-                  >
-                    <option value="">Selecciona estado</option>
-                    <option value="Edición">Edición</option>
-                    {selectedCurso.estado === 'Edición' && <option value="Publicado">Publicar</option>}
-                    {['Publicado', 'Activo'].includes(selectedCurso.estado || '') && <option value="Cancelado">Cancelar</option>}
-                    {selectedCurso.estado === 'Publicado' && <option value="Activo">Activar</option>}
-                  </select>
-                </div>
-                <Button onClick={handleCambiarEstado} disabled={!nuevoEstado || changingState} className="ml-2">
-                  {changingState ? 'Cambiando...' : 'Cambiar'}
-                </Button>
-              </div>
             </div>
             {/* Scroll para módulos/secciones y subsecciones */}
             <ScrollArea className="h-[60vh] w-full pr-2">
-              <div className="mb-4">
-                <h3 className="font-semibold mb-2">Módulos/Secciones</h3>
-                <ul className="mb-2 space-y-2">
-                  {(modulos[selectedCurso._id] || []).map((mod, i) => (
+              <div className="mb-4">                <h3 className="font-semibold mb-2">Módulos/Secciones</h3>
+                {loadingModulos ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <div key={index} className="border rounded p-4">
+                        <div className="flex justify-between items-center mb-3">
+                          <Skeleton className="h-5 w-1/3" />
+                          <Skeleton className="h-4 w-20" />
+                        </div>
+                        <Skeleton className="h-4 w-full mb-2" />
+                        <Skeleton className="h-4 w-2/3" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <ul className="mb-2 space-y-2">
+                    {(modulos[selectedCurso._id] || []).map((mod, i) => (
                     <li
                       key={i}
                       className="border rounded"
@@ -971,10 +1014,10 @@ export default function Cursos() {
                             </Button>
                           </div>
                         </CollapsibleContent>
-                      </Collapsible>
-                    </li>
+                      </Collapsible>                    </li>
                   ))}
                 </ul>
+                )}
                 {/* Formulario para agregar módulo/sección */}
                 <div className="flex gap-2 mt-4">
                   <Input
@@ -990,36 +1033,177 @@ export default function Cursos() {
             </ScrollArea>
           </div>
         )}
-      </div>
-      {/* Modal para crear curso */}
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+      </div>      {/* Modal para crear curso */}
+      <Dialog open={open} onOpenChange={(isOpen) => {
+        setOpen(isOpen);
+        if (!isOpen) {
+          // Reset form and preview when dialog closes
+          setForm({
+            nombreCurso: '',
+            descripcion: '',
+            fechaInicio: '',
+            fechaFin: '',
+            foto: '',
+            estado: 'Activo',
+          });
+          setPreviewFoto("");
+          const fileInput = document.getElementById('foto-file') as HTMLInputElement;
+          if (fileInput) fileInput.value = '';
+        }
+      }}>
+        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Crear nuevo curso</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <label className="font-medium" htmlFor="nombreCurso">Nombre del curso</label>
-            <Input id="nombreCurso" name="nombreCurso" value={form.nombreCurso} onChange={handleChange} placeholder="Nombre del curso" required />
-            <label className="font-medium" htmlFor="descripcion">Descripción</label>
-            <Textarea id="descripcion" name="descripcion" value={form.descripcion} onChange={handleChange} placeholder="Descripción" required />
-            <div className="flex gap-2">
-              <div className="flex-1 flex flex-col">
-                <label className="font-medium" htmlFor="fechaInicio">Fecha de inicio</label>
-                <Input type="date" id="fechaInicio" name="fechaInicio" value={form.fechaInicio} onChange={handleChange} required />
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Información básica */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="nombreCurso">
+                  Nombre del curso
+                </label>
+                <Input 
+                  id="nombreCurso" 
+                  name="nombreCurso" 
+                  value={form.nombreCurso} 
+                  onChange={handleChange} 
+                  placeholder="Ej: Introducción a JavaScript" 
+                  required 
+                />
               </div>
-              <div className="flex-1 flex flex-col">
-                <label className="font-medium" htmlFor="fechaFin">Fecha de fin</label>
-                <Input type="date" id="fechaFin" name="fechaFin" value={form.fechaFin} onChange={handleChange} required />
+              
+              <div>
+                <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="descripcion">
+                  Descripción
+                </label>
+                <Textarea 
+                  id="descripcion" 
+                  name="descripcion" 
+                  value={form.descripcion} 
+                  onChange={handleChange} 
+                  placeholder="Describe de qué trata el curso..." 
+                  rows={3}
+                  required 
+                />
+              </div>
+              
+              {/* Fechas */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="fechaInicio">
+                    Fecha de inicio
+                  </label>
+                  <Input 
+                    type="date" 
+                    id="fechaInicio" 
+                    name="fechaInicio" 
+                    value={form.fechaInicio} 
+                    onChange={handleChange} 
+                    required 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="fechaFin">
+                    Fecha de fin
+                  </label>
+                  <Input 
+                    type="date" 
+                    id="fechaFin" 
+                    name="fechaFin" 
+                    value={form.fechaFin} 
+                    onChange={handleChange} 
+                    required 
+                  />
+                </div>
+              </div>
+              
+              {/* Imagen del curso */}
+              <div>
+                <label className="block text-sm font-medium text-muted-foreground mb-2">
+                  Imagen del curso
+                </label>
+                
+                <div className="flex flex-col items-center space-y-3">
+                  {/* Vista previa de la imagen */}
+                  <div className="relative">
+                    <div className="w-32 h-20 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-50">
+                      {previewFoto ? (
+                        <Image 
+                          src={previewFoto} 
+                          alt="Vista previa" 
+                          width={128}
+                          height={80}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Upload className="h-6 w-6 text-gray-400" />
+                        </div>
+                      )}
+                    </div>
+                    
+                    {previewFoto && (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="absolute -top-2 -right-2 w-6 h-6 rounded-full p-0"                        onClick={() => {
+                          setPreviewFoto("");
+                          setForm({ ...form, foto: '' });
+                          // Reset file input
+                          const fileInput = document.getElementById('foto-file') as HTMLInputElement;
+                          if (fileInput) fileInput.value = '';
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Área de subida */}
+                  <div className="w-full space-y-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      id="foto-file"
+                      onChange={handleFotoFileChange}
+                      disabled={uploadingFoto}
+                    />
+                    <label
+                      htmlFor="foto-file"
+                      className="w-full h-16 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-gray-400 transition-colors bg-gray-50 hover:bg-gray-100"
+                    >
+                      <Upload className="h-4 w-4 text-gray-400 mb-1" />
+                      <span className="text-xs text-gray-600">
+                        {uploadingFoto ? 'Subiendo...' : 'Subir imagen'}
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        JPG, PNG, WebP (máx. 5MB)
+                      </span>
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
-            <label className="font-medium" htmlFor="foto">Imagen del curso (opcional)</label>
-            <div className="flex gap-2 items-center">
-              <Input id="foto" name="foto" value={form.foto} onChange={handleChange} placeholder="URL de la imagen (opcional)" className="w-full" />
-              <input type="file" accept="image/*" style={{ display: 'none' }} id="foto-file" onChange={handleFotoFileChange} />
-              <Button type="button" onClick={() => document.getElementById('foto-file')?.click()}>Subir archivo</Button>
-              {previewFoto && <img src={previewFoto} alt="Preview" className="h-12 w-20 object-cover rounded ml-2" />}
-            </div>
-            <Button type="submit" disabled={saving}>{saving ? 'Creando...' : 'Crear curso'}</Button>
+            
+            {/* Botones */}
+            <DialogFooter className="pt-4">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setOpen(false)}
+                disabled={saving}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                type="submit" 
+                disabled={saving || uploadingFoto}
+              >
+                {saving ? 'Creando...' : 'Crear curso'}
+              </Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

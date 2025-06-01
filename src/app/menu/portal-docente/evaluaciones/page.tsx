@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
 
 export default function Evaluaciones() {
   // Estado del formulario
@@ -25,7 +27,6 @@ export default function Evaluaciones() {
   const [evaluacionSeleccionada, setEvaluacionSeleccionada] = useState<any>(null);
   const [resultados, setResultados] = useState<any[]>([]);
   const [tab, setTab] = useState("crear");
-
   // Estado para edición
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editEval, setEditEval] = useState<any>(null);
@@ -34,6 +35,12 @@ export default function Evaluaciones() {
   const [editFechaFin, setEditFechaFin] = useState("");
   const [editPreguntas, setEditPreguntas] = useState<any[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Estado para el dialog de resultados
+  const [resultadosDialogOpen, setResultadosDialogOpen] = useState(false);
+  const [resultadosDetallados, setResultadosDetallados] = useState<any[]>([]);
+  const [estudianteSeleccionado, setEstudianteSeleccionado] = useState<any>(null);
+  const [detalleRespuestasOpen, setDetalleRespuestasOpen] = useState(false);
 
   // Cargar cursos donde el usuario es docente (usando el usuario autenticado de la API)
   useEffect(() => {
@@ -65,15 +72,20 @@ export default function Evaluaciones() {
       .then(res => res.json())
       .then(data => setEvaluaciones(data.evaluaciones || []));
   }, [cursoSeleccionado, success]);
-
   // Cargar resultados de estudiantes para la evaluación seleccionada
   const cargarResultados = async (evaluacion: any) => {
     setEvaluacionSeleccionada(evaluacion);
     setResultados([]);
-    const res = await fetch(`/api/cassandraDB/evaluaciones?resultados=1&idEstudiante=&idCurso=${cursoSeleccionado}`);
-    const data = await res.json();
-    // Filtrar solo los resultados de esta evaluación
-    setResultados((data.resultados || []).filter((r: any) => r.idevaluacion === evaluacion.id));
+    try {
+      const res = await fetch(`/api/cassandraDB/evaluaciones?resultadosEvaluacion=1&idEvaluacion=${evaluacion.id}`);
+      const data = await res.json();
+      setResultados(data.resultados || []);
+      setResultadosDetallados(data.resultados || []);
+      setResultadosDialogOpen(true);
+    } catch (error) {
+      console.error('Error al cargar resultados:', error);
+      setResultados([]);
+    }
   };
 
   const handlePreguntaChange = (idx: number, field: string, value: any) => {
@@ -174,6 +186,26 @@ export default function Evaluaciones() {
     } finally {
       setDeletingId(null);
     }
+  };
+
+  // Mostrar detalle de respuestas de un estudiante
+  const mostrarDetalleRespuestas = (resultado: any) => {
+    setEstudianteSeleccionado(resultado);
+    setDetalleRespuestasOpen(true);
+  };
+  // Verificar si una respuesta es correcta
+  const esRespuestaCorrecta = (preguntaIdx: number, respuestaEstudiante: number) => {
+    const pregunta = evaluacionSeleccionada?.preguntas?.[preguntaIdx];
+    // Si no hay respuesta (undefined, null, -1) se considera incorrecta
+    if (respuestaEstudiante === undefined || respuestaEstudiante === null || respuestaEstudiante === -1) {
+      return false;
+    }
+    return pregunta && respuestaEstudiante === pregunta.respuestaCorrecta;
+  };
+
+  // Verificar si el estudiante no respondió una pregunta
+  const esRespuestaSinResponder = (respuestaEstudiante: number) => {
+    return respuestaEstudiante === undefined || respuestaEstudiante === null || respuestaEstudiante === -1;
   };
 
   // Asegura que el tab inicial sea válido si no hay cursos
@@ -291,116 +323,207 @@ export default function Evaluaciones() {
                     <div className="font-semibold text-lg">{ev.nombre}</div>
                     <div className="text-xs text-gray-500">{new Date(ev.fechainicio).toLocaleDateString()} - {new Date(ev.fechafin).toLocaleDateString()}</div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => cargarResultados(ev)} variant={evaluacionSeleccionada?.id === ev.id ? "default" : "outline"}>Ver resultados</Button>
+                  <div className="flex gap-2">                    <Button size="sm" onClick={() => cargarResultados(ev)}>Ver resultados</Button>
                     <Button size="sm" variant="outline" onClick={() => handleEdit(ev)}>Editar</Button>
                     <Button size="sm" variant="destructive" onClick={() => handleDelete(ev.id)} disabled={deletingId === ev.id}>{deletingId === ev.id ? "Eliminando..." : "Eliminar"}</Button>
                   </div>
                 </div>
-                {evaluacionSeleccionada?.id === ev.id && (
-                  <div className="mt-4">
-                    <h3 className="font-semibold mb-2">Resultados de estudiantes</h3>
-                    {resultados.length === 0 ? (
-                      <div className="text-gray-500 text-sm">Ningún estudiante ha realizado esta evaluación.</div>
-                    ) : (
-                      <table className="w-full text-sm border mt-2">
-                        <thead>
-                          <tr className="bg-gray-100">
-                            <th className="border px-2 py-1">Estudiante</th>
-                            <th className="border px-2 py-1">Nota</th>
-                            <th className="border px-2 py-1">Respuestas</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {resultados.map((r, idx) => (
-                            <tr key={idx}>
-                              <td className="border px-2 py-1">{r.idestudiante || "-"}</td>
-                              <td className="border px-2 py-1">{r.calificacion}</td>
-                              <td className="border px-2 py-1">
-                                {(r.respuestas || []).map((resp: number, i: number) => (
-                                  <div key={i}>
-                                    Pregunta {i + 1}: Opción {resp + 1}
-                                  </div>
-                                ))}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                )}
               </div>
             ))}
           </div>
-          {/* Dialogo de edición */}
-          <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-            <DialogContent>
+
+          {/* Dialog de resultados */}
+          <Dialog open={resultadosDialogOpen} onOpenChange={setResultadosDialogOpen}>
+            <DialogContent className="max-w-4xl max-h-[90vh]">
+              <DialogHeader>
+                <DialogTitle>Resultados de: {evaluacionSeleccionada?.nombre}</DialogTitle>
+              </DialogHeader>
+              <ScrollArea className="max-h-[70vh] pr-4">
+                {resultadosDetallados.length === 0 ? (
+                  <div className="text-gray-500 text-center py-8">Ningún estudiante ha realizado esta evaluación.</div>
+                ) : (
+                  <div className="space-y-4">
+                    {resultadosDetallados.map((resultado, idx) => {
+                      const totalPreguntas = evaluacionSeleccionada?.preguntas?.length || 0;
+                      const respuestasCorrectas = (resultado.respuestas || []).filter((resp: number, i: number) => 
+                        esRespuestaCorrecta(i, resp)
+                      ).length;
+                      
+                      return (                        <div key={idx} className="border rounded-lg p-4 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
+                             onClick={() => mostrarDetalleRespuestas(resultado)}>
+                          <div className="flex justify-between items-center">
+                            <div className="flex-1">
+                              <div className="font-semibold text-lg">{resultado.nombreCompleto || resultado.idestudiante}</div>
+                              <div className="text-sm text-gray-600">
+                                Realizado el: {new Date(resultado.fecharealizada).toLocaleDateString()}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-2xl font-bold text-blue-600">{resultado.calificacion.toFixed(1)}%</div>
+                              <div className="text-sm text-gray-600">
+                                {respuestasCorrectas}/{totalPreguntas} aciertos
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </ScrollArea>
+              <DialogFooter>
+                <Button onClick={() => setResultadosDialogOpen(false)}>Cerrar</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Dialog de detalle de respuestas */}
+          <Dialog open={detalleRespuestasOpen} onOpenChange={setDetalleRespuestasOpen}>
+            <DialogContent className="max-w-4xl max-h-[90vh]">              <DialogHeader>
+                <DialogTitle>
+                  Detalle de respuestas - {estudianteSeleccionado?.nombreCompleto || estudianteSeleccionado?.idestudiante}
+                </DialogTitle>
+                <div className="text-sm text-gray-600">
+                  Calificación: {estudianteSeleccionado?.calificacion?.toFixed(1)}% | 
+                  Realizado el: {estudianteSeleccionado?.fecharealizada ? new Date(estudianteSeleccionado.fecharealizada).toLocaleDateString() : 'N/A'}
+                </div>
+              </DialogHeader>              <ScrollArea className="max-h-[70vh] pr-4">
+                {evaluacionSeleccionada?.preguntas?.map((pregunta: any, idx: number) => {
+                  const respuestaEstudiante = estudianteSeleccionado?.respuestas?.[idx];
+                  const esCorrecto = esRespuestaCorrecta(idx, respuestaEstudiante);
+                  const sinResponder = esRespuestaSinResponder(respuestaEstudiante);
+                  
+                  return (
+                    <div key={idx} className="border rounded-lg p-4 mb-4 bg-white">
+                      <div className="flex justify-between items-start mb-3">
+                        <h3 className="font-semibold text-lg">Pregunta {idx + 1}</h3>
+                        <Badge variant={sinResponder ? "outline" : (esCorrecto ? "default" : "destructive")}>
+                          {sinResponder ? "Sin respuesta" : (esCorrecto ? "Acertada" : "Fallada")}
+                        </Badge>
+                      </div>
+                      
+                      <p className="mb-4 text-gray-700">{pregunta.enunciado}</p>
+                      
+                      {sinResponder ? (
+                        <div className="bg-gray-100 border border-gray-300 p-3 rounded">
+                          <div className="flex items-center gap-2 text-gray-600">
+                            <span className="font-medium">El estudiante no respondió esta pregunta</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {pregunta.opciones?.map((opcion: string, opIdx: number) => {
+                            const esRespuestaCorrecta = opIdx === pregunta.respuestaCorrecta;
+                            const esRespuestaEstudiante = opIdx === respuestaEstudiante;
+                            
+                            let bgColor = "";
+                            if (esRespuestaCorrecta && esRespuestaEstudiante) {
+                              bgColor = "bg-green-100 border-green-300"; // Correcto y elegido
+                            } else if (esRespuestaCorrecta) {
+                              bgColor = "bg-green-50 border-green-200"; // Respuesta correcta
+                            } else if (esRespuestaEstudiante) {
+                              bgColor = "bg-red-100 border-red-300"; // Elegido pero incorrecto
+                            } else {
+                              bgColor = "bg-gray-50 border-gray-200"; // No elegido
+                            }
+                            
+                            return (
+                              <div key={opIdx} className={`p-3 rounded border ${bgColor}`}>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2">
+                                    {esRespuestaEstudiante && (
+                                      <span className="text-blue-600 font-semibold">→</span>
+                                    )}
+                                    {esRespuestaCorrecta && (
+                                      <span className="text-green-600 font-semibold">✓</span>
+                                    )}
+                                  </div>
+                                  <span className="font-medium">Opción {opIdx + 1}:</span>
+                                  <span>{opcion}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </ScrollArea>
+              <DialogFooter>
+                <Button onClick={() => setDetalleRespuestasOpen(false)}>Cerrar</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          {/* Dialogo de edición */}          <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+            <DialogContent className="max-w-4xl max-h-[90vh]">
               <DialogHeader>
                 <DialogTitle>Editar evaluación</DialogTitle>
               </DialogHeader>
-              <form onSubmit={e => { e.preventDefault(); handleEditSave(); }} className="flex flex-col gap-4">
-                <div>
-                  <label className="font-medium">Nombre de la evaluación</label>
-                  <Input value={editNombre} onChange={e => setEditNombre(e.target.value)} required />
-                </div>
-                <div className="flex gap-4">
-                  <div className="flex-1">
-                    <label className="font-medium">Fecha de inicio</label>
-                    <Input type="date" value={editFechaInicio} onChange={e => setEditFechaInicio(e.target.value)} required />
+              <ScrollArea className="max-h-[70vh] pr-4">
+                <form onSubmit={e => { e.preventDefault(); handleEditSave(); }} className="flex flex-col gap-4">
+                  <div>
+                    <label className="font-medium">Nombre de la evaluación</label>
+                    <Input value={editNombre} onChange={e => setEditNombre(e.target.value)} required />
                   </div>
-                  <div className="flex-1">
-                    <label className="font-medium">Fecha de fin</label>
-                    <Input type="date" value={editFechaFin} onChange={e => setEditFechaFin(e.target.value)} required />
-                  </div>
-                </div>
-                <div>
-                  <label className="font-medium mb-2 block">Preguntas</label>
-                  {editPreguntas.map((preg, idx) => (
-                    <div key={idx} className="border rounded-lg p-4 mb-4 bg-gray-50">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="font-semibold">Pregunta {idx + 1}</span>
-                        {editPreguntas.length > 1 && (
-                          <Button type="button" variant="ghost" size="sm" onClick={() => setEditPreguntas(prev => prev.filter((_, i) => i !== idx))} className="text-red-500">Eliminar</Button>
-                        )}
-                      </div>
-                      <Textarea
-                        value={preg.enunciado}
-                        onChange={e => setEditPreguntas(prev => prev.map((p, i) => i === idx ? { ...p, enunciado: e.target.value } : p))}
-                        placeholder="Enunciado de la pregunta"
-                        required
-                        className="mb-2"
-                      />
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-                        {preg.opciones.map((op: string, opIdx: number) => (
-                          <div key={opIdx} className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              name={`edit-respuestaCorrecta-${idx}`}
-                              checked={preg.respuestaCorrecta === opIdx}
-                              onChange={() => setEditPreguntas(prev => prev.map((p, i) => i === idx ? { ...p, respuestaCorrecta: opIdx } : p))}
-                              className="accent-blue-600"
-                            />
-                            <Input
-                              value={op}
-                              onChange={e => setEditPreguntas(prev => prev.map((p, i) => i === idx ? { ...p, opciones: p.opciones.map((o: string, j: number) => j === opIdx ? e.target.value : o) } : p))}
-                              placeholder={`Opción ${opIdx + 1}`}
-                              required
-                            />
-                          </div>
-                        ))}
-                      </div>
-                      <span className="text-xs text-gray-500">Selecciona la respuesta correcta</span>
+                  <div className="flex gap-4">
+                    <div className="flex-1">
+                      <label className="font-medium">Fecha de inicio</label>
+                      <Input type="date" value={editFechaInicio} onChange={e => setEditFechaInicio(e.target.value)} required />
                     </div>
-                  ))}
-                  <Button type="button" onClick={() => setEditPreguntas(prev => [...prev, { enunciado: "", opciones: ["", "", "", ""], respuestaCorrecta: 0 }])} className="mt-2">+ Agregar pregunta</Button>
-                </div>
-                <DialogFooter>
-                  <Button type="submit" disabled={saving}>{saving ? "Guardando..." : "Guardar cambios"}</Button>
-                  <Button type="button" variant="ghost" onClick={() => setEditDialogOpen(false)}>Cancelar</Button>
-                </DialogFooter>
-                {error && <div className="text-red-600 text-sm mt-2">{error}</div>}
-              </form>
+                    <div className="flex-1">
+                      <label className="font-medium">Fecha de fin</label>
+                      <Input type="date" value={editFechaFin} onChange={e => setEditFechaFin(e.target.value)} required />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="font-medium mb-2 block">Preguntas</label>
+                    {editPreguntas.map((preg, idx) => (
+                      <div key={idx} className="border rounded-lg p-4 mb-4 bg-gray-50">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="font-semibold">Pregunta {idx + 1}</span>
+                          {editPreguntas.length > 1 && (
+                            <Button type="button" variant="ghost" size="sm" onClick={() => setEditPreguntas(prev => prev.filter((_, i) => i !== idx))} className="text-red-500">Eliminar</Button>
+                          )}
+                        </div>
+                        <Textarea
+                          value={preg.enunciado}
+                          onChange={e => setEditPreguntas(prev => prev.map((p, i) => i === idx ? { ...p, enunciado: e.target.value } : p))}
+                          placeholder="Enunciado de la pregunta"
+                          required
+                          className="mb-2"
+                        />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                          {preg.opciones.map((op: string, opIdx: number) => (
+                            <div key={opIdx} className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name={`edit-respuestaCorrecta-${idx}`}
+                                checked={preg.respuestaCorrecta === opIdx}
+                                onChange={() => setEditPreguntas(prev => prev.map((p, i) => i === idx ? { ...p, respuestaCorrecta: opIdx } : p))}
+                                className="accent-blue-600"
+                              />
+                              <Input
+                                value={op}
+                                onChange={e => setEditPreguntas(prev => prev.map((p, i) => i === idx ? { ...p, opciones: p.opciones.map((o: string, j: number) => j === opIdx ? e.target.value : o) } : p))}
+                                placeholder={`Opción ${opIdx + 1}`}
+                                required
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <span className="text-xs text-gray-500">Selecciona la respuesta correcta</span>
+                      </div>
+                    ))}
+                    <Button type="button" onClick={() => setEditPreguntas(prev => [...prev, { enunciado: "", opciones: ["", "", "", ""], respuestaCorrecta: 0 }])} className="mt-2">+ Agregar pregunta</Button>
+                  </div>
+                  {error && <div className="text-red-600 text-sm mt-2">{error}</div>}
+                </form>
+              </ScrollArea>
+              <DialogFooter>
+                <Button onClick={handleEditSave} disabled={saving}>{saving ? "Guardando..." : "Guardar cambios"}</Button>
+                <Button type="button" variant="ghost" onClick={() => setEditDialogOpen(false)}>Cancelar</Button>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
         </TabsContent>

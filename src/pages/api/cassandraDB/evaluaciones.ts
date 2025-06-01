@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { v4 as uuidv4 } from 'uuid';
 import { connectCassandra } from './connection/connector-cassandraDB';
+import { ObjectId } from 'mongodb';
 
 // Utilidades para fechas
 const now = () => new Date().toISOString();
@@ -45,10 +46,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(200).json({ ok: true, evaluaciones });
     } catch (e) {
       res.status(500).json({ error: 'Error al listar evaluaciones', details: e });
+    }    return;
+  }
+  if (req.method === 'PUT' && req.query.editar === '1') {
+    // Editar evaluación
+    const { id, idCurso, nombre, fechaInicio, fechaFin, preguntas } = req.body;
+    try {
+      // Serializar cada pregunta como string JSON
+      const preguntasSerializadas = (preguntas || []).map((p: any) => JSON.stringify(p));
+      await client.execute(
+        'UPDATE evaluaciones SET nombre = ?, fechainicio = ?, fechafin = ?, preguntas = ? WHERE id = ?',
+        [nombre, fechaInicio, fechaFin, preguntasSerializadas, id],
+        { prepare: true }
+      );
+      res.status(200).json({ ok: true, id });
+    } catch (e) {
+      res.status(500).json({ error: 'Error al editar evaluación', details: e });
     }
     return;
   }
-  if (req.method === 'POST' && req.query.responder === '1') {
+  if (req.method === 'DELETE' && req.query.eliminar === '1') {
+    // Eliminar evaluación
+    const { id } = req.query;
+    try {
+      await client.execute('DELETE FROM evaluaciones WHERE id = ?', [id], { prepare: true });
+      res.status(200).json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: 'Error al eliminar evaluación', details: e });
+    }
+    return;
+  }  if (req.method === 'POST' && req.query.responder === '1') {
     // Responder evaluación
     const { idEvaluacion, idEstudiante, respuestas, preguntas } = req.body;
     // Calcular calificación
@@ -58,7 +85,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (typeof pregunta === 'string') {
         try { pregunta = JSON.parse(pregunta); } catch {}
       }
-      if (respuestas[i] === pregunta.respuestaCorrecta) correctas++;
+      // Si no hay respuesta (undefined, null, -1) se considera como fallada
+      const respuestaEstudiante = respuestas[i];
+      if (respuestaEstudiante !== undefined && respuestaEstudiante !== null && respuestaEstudiante !== -1) {
+        if (respuestaEstudiante === pregunta.respuestaCorrecta) correctas++;
+      }
+      // Si no hay respuesta, no se incrementa 'correctas', por lo que se cuenta como fallada
     }
     const calificacion = (correctas / preguntas.length) * 100;
     try {
@@ -72,12 +104,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(500).json({ error: 'Error al guardar respuesta', details: e });
     }
     return;
-  }
-  if (req.method === 'GET' && req.query.resultados === '1') {
+  }if (req.method === 'GET' && req.query.resultados === '1') {
     // Resultados de estudiante para un curso
     const { idEstudiante, idCurso } = req.query;
     try {
-      const evals = await client.execute('SELECT id FROM evaluaciones WHERE idcurso = ?', [idCurso], { prepare: true });
+      const evals = await client.execute('SELECT id FROM evaluaciones WHERE idcurso = ? ALLOW FILTERING', [idCurso], { prepare: true });
       const ids = evals.rows.map((r: any) => r.id);
       let resultados: any[] = [];
       for (const id of ids) {
@@ -87,6 +118,45 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(200).json({ ok: true, resultados });
     } catch (e) {
       res.status(500).json({ error: 'Error al obtener resultados', details: e });
+    }
+    return;
+  }  if (req.method === 'GET' && req.query.resultadosEvaluacion === '1') {
+    // Resultados de todos los estudiantes para una evaluación específica
+    const { idEvaluacion } = req.query;
+    try {
+      const resultados = await client.execute('SELECT * FROM respuestas WHERE idevaluacion = ?', [idEvaluacion], { prepare: true });
+      
+      // Obtener información de estudiantes desde MongoDB
+      const estudiantesIds = resultados.rows.map((r: any) => r.idestudiante);
+      let estudiantesInfo: any = {};
+      
+      if (estudiantesIds.length > 0) {
+        try {
+          const { connectMongoDB } = require('../mongoDB/connection/conector-mongoDB');
+          const mongoClient = await connectMongoDB();
+          const db = mongoClient.db("ProyectoIBasesII");
+          const usuarios = db.collection('Usuarios');
+          
+          const objectIds = estudiantesIds.map((id: string) => new ObjectId(id));
+          const usuariosResult = await usuarios.find({ _id: { $in: objectIds } }).toArray();
+          
+          usuariosResult.forEach((usuario: any) => {
+            estudiantesInfo[usuario._id.toString()] = `${usuario.nombre} ${usuario.apellido1} ${usuario.apellido2}`.trim();
+          });
+        } catch (mongoError) {
+          console.error('Error al obtener información de estudiantes:', mongoError);
+        }
+      }
+
+      // Agregar nombre completo a los resultados
+      const resultadosConNombres = resultados.rows.map((resultado: any) => ({
+        ...resultado,
+        nombreCompleto: estudiantesInfo[resultado.idestudiante] || `Usuario ${resultado.idestudiante}`
+      }));
+      
+      res.status(200).json({ ok: true, resultados: resultadosConNombres });
+    } catch (e) {
+      res.status(500).json({ error: 'Error al obtener resultados de evaluación', details: e });
     }
     return;
   }
