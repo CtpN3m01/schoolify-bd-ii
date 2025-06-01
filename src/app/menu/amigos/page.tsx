@@ -30,6 +30,7 @@ import { useRouter } from "next/navigation"
 interface Friend {
   id: number;
   name: string;
+  username?: string;
   avatar: string;
   status: string;
   description?: string;
@@ -58,9 +59,13 @@ export default function Amigos() {
   const [searchResult, setSearchResult] = useState<Friend|null>(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
-
   // Simulación: usuario actual (debería venir de auth)
   const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') || '' : '';
+
+  // Debug para verificar el userId
+  useEffect(() => {
+    console.log('Current userId en amigos:', currentUserId);
+  }, [currentUserId]);
 
   // Cargar amigos reales
   useEffect(() => {
@@ -169,11 +174,11 @@ export default function Amigos() {
               {loadingFriends ? (
                 <div className="text-center col-span-full py-8 text-muted-foreground">Cargando amigos...</div>
               ) : filteredFriends.length > 0 ? (
-                filteredFriends.map((friend) => (
-                  <FriendCard 
+                filteredFriends.map((friend) => (                  <FriendCard 
                     key={friend.id}
                     id={friend.id}
                     name={friend.name}
+                    username={friend.username}
                     avatar={friend.avatar}
                     status={friend.status}
                     description={friend.description}
@@ -208,14 +213,14 @@ export default function Amigos() {
               {searching && <div className="text-sm text-muted-foreground">Buscando...</div>}
               {searchError && <div className="text-sm text-destructive">{searchError}</div>}
               {searchResult && (
-                <div className="mt-2">
-                  <FriendCard
+                <div className="mt-2">                  <FriendCard
                     name={searchResult.name}
                     avatar={searchResult.avatar}
                     status={searchResult.status}
                     description={searchResult.description}
                     university={searchResult.university}
                     id={searchResult.id}
+                    username={searchResult.username}
                     showAddFriend
                     refresh={refreshFriendsAndSolicitudes}
                   />
@@ -226,10 +231,10 @@ export default function Amigos() {
               {loadingSolicitudes ? (
                 <div className="text-center col-span-full py-8 text-muted-foreground">Cargando solicitudes...</div>
               ) : solicitudes.length > 0 ? (
-                solicitudes.map((sol) => (
-                  <FriendCard
+                solicitudes.map((sol) => (                  <FriendCard
                     key={sol.id}
                     name={sol.name}
+                    username={sol.username}
                     avatar={sol.avatar}
                     status={sol.status}
                     description={sol.description}
@@ -256,6 +261,7 @@ export default function Amigos() {
 interface FriendCardProps {
   id: number | string;
   name: string;
+  username?: string;
   avatar: string;
   status: string;
   description?: string;
@@ -265,7 +271,7 @@ interface FriendCardProps {
   refresh?: () => void;
 }
 
-function FriendCard({ id, name, avatar, status, description, university, showAddFriend, showAcceptReject, refresh }: FriendCardProps) {
+function FriendCard({ id, name, username, avatar, status, description, university, showAddFriend, showAcceptReject, refresh }: FriendCardProps) {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [accepted, setAccepted] = useState(false);
@@ -431,10 +437,9 @@ function FriendCard({ id, name, avatar, status, description, university, showAdd
               </DialogContent>
             </Dialog>
           </>
-        )}
-        <button
+        )}        <button
           className="text-xs bg-blue-600 text-white hover:bg-blue-700 transition-colors px-3 py-1.5 rounded"
-          onClick={() => router.push(`/menu/perfil?id=${typeof id === 'string' ? id : name}`)}
+          onClick={() => router.push(`/menu/perfil?id=${username || id}`)}
         >Ver perfil</button>
       </div>
     </Card>

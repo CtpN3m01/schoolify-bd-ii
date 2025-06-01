@@ -8,7 +8,9 @@ import {
   DialogClose,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useUser } from "@/app/UserContext";
 
 
 export default function Perfil() {
@@ -23,14 +25,16 @@ export default function Perfil() {
   const [showFileInput, setShowFileInput] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const avatarRef = useRef<HTMLDivElement>(null);
-  const [hovered, setHovered] = useState(false);
-  const router = useRouter();
+  const [hovered, setHovered] = useState(false);  const router = useRouter();
   const searchParams = useSearchParams();
   const [cursos, setCursos] = useState<any[]>([]);
+  const [cursosDocente, setCursosDocente] = useState<any[]>([]);
+  const { user: currentUser } = useUser();
 
   // Mover hooks aquí para asegurar que se usan solo en el cliente
   // Permitir ver perfil propio o ajeno (por id en query param)
   const perfilId = typeof window !== 'undefined' && searchParams ? searchParams.get("id") : null;
+  const isOwnProfile = !perfilId || (currentUser && currentUser.nombreUsuario === perfilId);
 
   useEffect(() => {
     // Si hay id en query param, buscar ese usuario, si no, el propio
@@ -57,15 +61,22 @@ export default function Perfil() {
     };
     fetchUser();
   }, [perfilId]);
-
   useEffect(() => {
     if (!user) return;
     // Obtener cursos matriculados desde Neo4j solo si hay identificador
     const userNeoId = user._id || user.id || user.nombreUsuario;
     if (!userNeoId) return;
+    
+    // Cursos matriculados
     fetch(`/api/neo4jDB/cursos-matriculados?userId=${userNeoId}`)
       .then(res => res.json())
       .then(data => setCursos(data.cursos || []));
+    
+    // Cursos como docente (buscar en MongoDB)
+    fetch(`/api/mongoDB/cursos/obtener-cursos-docente?nombreUsuario=${user.nombreUsuario}`)
+      .then(res => res.json())
+      .then(data => setCursosDocente(data.cursos || []))
+      .catch(() => setCursosDocente([]));
   }, [user]);
 
   const handleEditClick = () => {
@@ -182,15 +193,16 @@ export default function Perfil() {
                 <AvatarFallback>{user.nombreUsuario?.[0]?.toUpperCase() || "U"}</AvatarFallback>
               )}
             </Avatar>
-          </div>
-          <span className="text-gray-700 text-base font-medium mb-1">@{user.nombreUsuario}</span>
+          </div>          <span className="text-gray-700 text-base font-medium mb-1">@{user.nombreUsuario}</span>
           <span className="text-gray-500 text-sm mb-4">{user.amigos?.length ? `${user.amigos.length} Amigos` : "Sin amigos"}</span>
-          <button
-            className="bg-black text-white px-5 py-2 rounded-md font-medium text-sm hover:bg-gray-900 transition"
-            onClick={handleEditClick}
-          >
-            Editar perfil
-          </button>
+          {isOwnProfile && (
+            <button
+              className="bg-black text-white px-5 py-2 rounded-md font-medium text-sm hover:bg-gray-900 transition"
+              onClick={handleEditClick}
+            >
+              Editar perfil
+            </button>
+          )}
           <Dialog
   open={open}
   onOpenChange={(v) => {
@@ -308,36 +320,83 @@ export default function Perfil() {
             </div>
           </div>
         </div>
-      </section>
-      {/* Cursos reales */}
+      </section>      {/* Cursos con tabs */}
       <section className="max-w-5xl w-full mx-auto">
         <h2 className="text-2xl font-bold mb-8">Cursos</h2>
-        {cursos.length === 0 ? (
-          <div className="text-gray-500">No hay cursos matriculados.</div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
-            {cursos.map((curso) => (
-              <div
-                key={curso._id}
-                className="flex flex-col items-center bg-white rounded-xl shadow p-4 cursor-pointer hover:bg-blue-50 transition"
-                onClick={() => router.push(`/menu/portal-docente/cursos?id=${curso._id}`)}
-                title={curso.nombreCurso}
-              >
-                <div className="w-28 h-28 rounded-lg overflow-hidden mb-3">
-                  <Avatar className="w-28 h-28">
-                    {curso.foto ? (
-                      <AvatarImage src={curso.foto} alt={curso.nombreCurso} />
-                    ) : (
-                      <AvatarFallback>{curso.nombreCurso?.[0]?.toUpperCase() || "C"}</AvatarFallback>
-                    )}
-                  </Avatar>
-                </div>
-                <span className="text-center text-base font-medium line-clamp-2">{curso.nombreCurso}</span>
-                <span className="text-xs text-gray-500 mt-1">{curso.nombreUsuarioDocente && `Docente: ${curso.nombreUsuarioDocente}`}</span>
+        <Tabs defaultValue="matriculados" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="matriculados">Cursos Matriculados</TabsTrigger>
+            <TabsTrigger value="docente">Cursos como Docente</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="matriculados" className="mt-6">
+            {cursos.length === 0 ? (
+              <div className="text-gray-500">No hay cursos matriculados.</div>
+            ) : (              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
+                {cursos.map((curso) => (
+                  <div
+                    key={curso._id}
+                    className="flex flex-col items-center bg-white rounded-xl shadow p-4 cursor-pointer hover:bg-blue-50 transition"
+                    onClick={() => {
+                      if (isOwnProfile) {
+                        router.push(`/menu/portal-docente/cursos?id=${curso._id}`);
+                      } else {
+                        router.push('/menu/buscar');
+                      }
+                    }}
+                    title={curso.nombreCurso}
+                  >
+                    <div className="w-28 h-28 rounded-lg overflow-hidden mb-3">
+                      <Avatar className="w-28 h-28">
+                        {curso.foto ? (
+                          <AvatarImage src={curso.foto} alt={curso.nombreCurso} />
+                        ) : (
+                          <AvatarFallback>{curso.nombreCurso?.[0]?.toUpperCase() || "C"}</AvatarFallback>
+                        )}
+                      </Avatar>
+                    </div>
+                    <span className="text-center text-base font-medium line-clamp-2">{curso.nombreCurso}</span>
+                    <span className="text-xs text-gray-500 mt-1">{curso.nombreUsuarioDocente && `Docente: ${curso.nombreUsuarioDocente}`}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
+          </TabsContent>
+          
+          <TabsContent value="docente" className="mt-6">
+            {cursosDocente.length === 0 ? (
+              <div className="text-gray-500">No es docente de ningún curso.</div>
+            ) : (              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
+                {cursosDocente.map((curso) => (
+                  <div
+                    key={curso._id}
+                    className="flex flex-col items-center bg-white rounded-xl shadow p-4 cursor-pointer hover:bg-green-50 transition"
+                    onClick={() => {
+                      if (isOwnProfile) {
+                        router.push(`/menu/portal-docente/cursos?id=${curso._id}`);
+                      } else {
+                        router.push('/menu/buscar');
+                      }
+                    }}
+                    title={curso.nombreCurso}
+                  >
+                    <div className="w-28 h-28 rounded-lg overflow-hidden mb-3">
+                      <Avatar className="w-28 h-28">
+                        {curso.foto ? (
+                          <AvatarImage src={curso.foto} alt={curso.nombreCurso} />
+                        ) : (
+                          <AvatarFallback>{curso.nombreCurso?.[0]?.toUpperCase() || "C"}</AvatarFallback>
+                        )}
+                      </Avatar>
+                    </div>
+                    <span className="text-center text-base font-medium line-clamp-2">{curso.nombreCurso}</span>
+                    <span className="text-xs text-green-600 mt-1 font-medium">Docente</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </section>
     </div>
   );

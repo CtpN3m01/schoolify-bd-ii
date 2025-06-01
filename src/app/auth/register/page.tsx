@@ -3,11 +3,11 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { GraduationCapIcon } from "lucide-react";
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { GraduationCapIcon, Upload, X, User } from "lucide-react";
 import { useRouter } from 'next/navigation';
 
-export default function Register() {
-  const [form, setForm] = useState({
+export default function Register() {  const [form, setForm] = useState({
     nombreUsuario: '',
     password: '',
     nombre: '',
@@ -19,10 +19,67 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const router = useRouter();
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  // Utilidad para subir archivos al servidor local
+  const uploadArchivo = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) throw new Error('Error al subir archivo');
+    const data = await res.json();
+    return data.url;
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validar tipo de archivo
+    if (!file.type.startsWith('image/')) {
+      setError('Por favor selecciona una imagen válida');
+      return;
+    }
+
+    // Validar tamaño (máximo 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setError('La imagen no puede ser mayor a 5MB');
+      return;
+    }
+
+    try {
+      setUploadingPhoto(true);
+      setError('');
+      
+      // Crear vista previa
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPhotoPreview(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+
+      // Subir archivo
+      const url = await uploadArchivo(file);
+      setForm({ ...form, foto: url });
+    } catch (error: any) {
+      setError(error.message);
+      setPhotoPreview(null);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const removePhoto = () => {
+    setForm({ ...form, foto: '' });
+    setPhotoPreview(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -42,10 +99,10 @@ export default function Register() {
       // Guardar el userId en localStorage
       if (data.usuario && data.usuario._id) {
         localStorage.setItem('userId', data.usuario._id);
-      }
-      setForm({
+      }      setForm({
         nombreUsuario: '', password: '', nombre: '', apellido1: '', apellido2: '', fechaNacimiento: '', foto: ''
       });
+      setPhotoPreview(null);
       setTimeout(() => {
         router.push('/auth/login');
       }, 2000);
@@ -89,16 +146,67 @@ export default function Register() {
         <div>
           <label className="block text-sm font-medium text-muted-foreground">Segundo apellido</label>
           <Input name="apellido2" value={form.apellido2} onChange={handleChange} placeholder="Segundo apellido" required />
-        </div>
-        <div>
+        </div>        <div>
           <label className="block text-sm font-medium text-muted-foreground">Fecha de nacimiento</label>
           <Input name="fechaNacimiento" type="date" value={form.fechaNacimiento} onChange={handleChange} required />
         </div>
-        <div>
-          <label className="block text-sm font-medium text-muted-foreground">Foto (URL)</label>
-          <Input name="foto" value={form.foto} onChange={handleChange} placeholder="https://..." />
+          <div>
+          <label className="block text-sm font-medium text-muted-foreground mb-2">Foto de perfil</label>
+          
+          <div className="flex flex-col items-center space-y-4">
+            {/* Vista previa del avatar */}
+            <div className="relative">
+              <Avatar className="w-24 h-24">
+                {photoPreview ? (
+                  <AvatarImage src={photoPreview} alt="Vista previa" />
+                ) : (
+                  <AvatarFallback className="bg-gray-100">
+                    <User className="w-8 h-8 text-gray-400" />
+                  </AvatarFallback>
+                )}
+              </Avatar>
+              
+              {photoPreview && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  className="absolute -top-2 -right-2 w-6 h-6 rounded-full p-0"
+                  onClick={removePhoto}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+
+            {/* Área de subida */}
+            <div className="w-full">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoUpload}
+                className="hidden"
+                id="photo-upload"
+                disabled={uploadingPhoto}
+              />
+              <label
+                htmlFor="photo-upload"
+                className="w-full h-20 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-gray-400 transition-colors bg-gray-50"
+              >
+                <Upload className="h-5 w-5 text-gray-400 mb-1" />
+                <span className="text-xs text-gray-600">
+                  {uploadingPhoto ? 'Subiendo...' : 'Subir foto'}
+                </span>
+                <span className="text-xs text-gray-400">
+                  PNG, JPG hasta 5MB
+                </span>
+              </label>
+            </div>
+          </div>
         </div>
-        <Button className="w-full" type="submit" disabled={loading}>{loading ? 'Registrando...' : 'Continuar'}</Button>
+        <Button className="w-full" type="submit" disabled={loading || uploadingPhoto}>
+          {loading ? 'Registrando...' : 'Continuar'}
+        </Button>
         {error && <p className="text-red-500 text-sm text-center">{error}</p>}
         {success && <p className="text-green-600 text-sm text-center">{success}</p>}
         <p className="text-sm text-muted-foreground text-center">

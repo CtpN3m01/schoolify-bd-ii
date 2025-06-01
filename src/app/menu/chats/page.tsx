@@ -8,6 +8,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { io as clientIO, Socket } from 'socket.io-client';
 import { useRouter } from 'next/navigation';
+import { useUser } from '@/app/UserContext';
 
 interface Usuario {
   _id: string;
@@ -34,14 +35,19 @@ export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showScrollButton, setShowScrollButton] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);  const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const router = useRouter();
+  const { user } = useUser();
+  // Get current user ID from context
+  const currentUserId = user?._id || '';
 
-  // Simulación: usuario actual (esto debería venir de auth)
-  const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') || '' : '';
+  // Debug user info
+  useEffect(() => {
+    console.log('Current user from context:', user);
+    console.log('Current userId:', currentUserId);
+  }, [user, currentUserId]);
 
   // Cargar usuarios reales
   useEffect(() => {
@@ -52,28 +58,30 @@ export default function Chat() {
 
   // Estado para contar mensajes no leídos por chat
   const [unreadCounts, setUnreadCounts] = useState<{ [userId: string]: number }>({});
-
   // Actualizar mensajes y contadores en tiempo real
   useEffect(() => {
     if (!socketRef.current) return;
     const socket = socketRef.current;
+    
     // Cuando recibo un mensaje, actualizar mensajes y contadores en tiempo real
     socket.on('receive-message', (msg: Message) => {
-      setMessages(prev => {
-        // Si el mensaje es para el chat abierto, solo agregarlo
-        if (msg.from === activeChat || msg.to === activeChat) {
-          return [...prev, msg];
-        }
-        // Si el mensaje es para mí pero NO estoy en ese chat, aumentar contador
-        if (msg.to === currentUserId && msg.from !== activeChat) {
-          setUnreadCounts(prevCounts => ({
-            ...prevCounts,
-            [msg.from]: (prevCounts[msg.from] || 0) + 1
-          }));
-        }
-        return [...prev, msg];
-      });
+      console.log('Mensaje recibido por socket:', msg);
+      
+      // Si el mensaje es para el chat abierto O es un mensaje que yo envié, agregarlo inmediatamente
+      if ((msg.from === activeChat && msg.to === currentUserId) || 
+          (msg.from === currentUserId && msg.to === activeChat)) {
+        setMessages(prev => [...prev, msg]);
+      }
+      
+      // Si el mensaje es para mí pero NO estoy en ese chat, aumentar contador
+      if (msg.to === currentUserId && msg.from !== activeChat && msg.from !== currentUserId) {
+        setUnreadCounts(prevCounts => ({
+          ...prevCounts,
+          [msg.from]: (prevCounts[msg.from] || 0) + 1
+        }));
+      }
     });
+    
     return () => {
       socket.off('receive-message');
     };
@@ -172,23 +180,46 @@ export default function Chat() {
     return () => {
       socket.disconnect();
     };
-  }, [currentUserId]);
-
-  // Enviar mensaje (ahora también por socket.io)
+  }, [currentUserId]);  // Enviar mensaje (ahora también por socket.io)
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || !activeChat) return;
-    const res = await fetch('/api/neo4jDB/enviar-mensaje', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fromId: currentUserId, toId: activeChat, contenido: inputMessage })
-    });
-    const data = await res.json();
-    if (data.success) {
-      const msg = { ...data.mensaje, from: currentUserId, to: activeChat };
-      setMessages(prev => [...prev, msg]);
-      setInputMessage('');
-      // Emitir por socket.io
-      socketRef.current?.emit('send-message', msg);
+    
+    console.log('Enviando mensaje:', { fromId: currentUserId, toId: activeChat, contenido: inputMessage });
+    
+    try {
+      const res = await fetch('/api/neo4jDB/enviar-mensaje', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromId: currentUserId, toId: activeChat, contenido: inputMessage })
+      });
+      
+      const data = await res.json();
+      console.log('Respuesta del servidor:', data);
+      
+      if (data.success) {
+        // Crear el mensaje con la estructura correcta, manejando casos donde data.mensaje podría ser undefined
+        const nuevoMensaje: Message = {
+          _id: data.mensaje?._id || `temp-${Date.now()}`,
+          from: currentUserId,
+          to: activeChat,
+          contenido: inputMessage,
+          fecha: data.mensaje?.fecha || new Date().toISOString(),
+          epochMillis: data.mensaje?.epochMillis || Date.now()
+        };
+        
+        //console.log('Mensaje a agregar:', nuevoMensaje);
+        
+        // Agregar inmediatamente a los mensajes locales
+        setMessages(prev => [...prev, nuevoMensaje]);
+        setInputMessage('');
+        
+        // Emitir por socket.io para que otros usuarios lo reciban
+        socketRef.current?.emit('send-message', nuevoMensaje);
+      } else {
+        console.error('Error al enviar mensaje:', data.error || 'Error desconocido');
+      }
+    } catch (error) {
+      console.error('Error en handleSendMessage:', error);
     }
   };
 

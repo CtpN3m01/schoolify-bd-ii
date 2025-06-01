@@ -10,9 +10,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!fromId || !toId) {
     return res.status(400).json({ message: 'Faltan parámetros obligatorios' });
   }
+  
   const driver = connectNeo4j();
   const session = driver.session();
+  
   try {
+    // Primero verificar que ambos usuarios existen
+    const checkUsers = await session.run(
+      `OPTIONAL MATCH (from:Usuario {_id: $fromId})
+       OPTIONAL MATCH (to:Usuario {_id: $toId})
+       RETURN from._id as fromExists, to._id as toExists`,
+      { fromId, toId }
+    );
+    
+    const userCheck = checkUsers.records[0];
+    const fromExists = userCheck?.get('fromExists') !== null;
+    const toExists = userCheck?.get('toExists') !== null;
+    
+    console.log(`Verificación usuarios - From: ${fromExists}, To: ${toExists}`);
+    
     // Buscar mensajes entre ambos usuarios (en ambos sentidos)
     const result = await session.run(
       `CALL {
@@ -26,14 +42,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ORDER BY m.epochMillis ASC`,
       { fromId, toId }
     );
+    
     const mensajes = result.records.map(r => ({
       ...r.get('m').properties,
       from: r.get('from'),
       to: r.get('to')
     }));
-    res.status(200).json({ success: true, mensajes });
+    
+    console.log(`Historial encontrado: ${mensajes.length} mensajes entre ${fromId} y ${toId}`);
+    
+    res.status(200).json({ 
+      success: true, 
+      mensajes,
+      debug: {
+        fromExists,
+        toExists,
+        totalMensajes: mensajes.length
+      }
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error obteniendo historial de mensajes', error: (error as Error).message });
+    console.error('Error en historial-mensajes:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error obteniendo historial de mensajes', 
+      error: (error as Error).message 
+    });
   } finally {
     await session.close();
   }
