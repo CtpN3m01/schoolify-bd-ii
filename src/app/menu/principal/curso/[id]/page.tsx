@@ -1,14 +1,16 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowLeft, MessageSquare, Users, GraduationCap } from "lucide-react";
+import { ArrowLeft, MessageSquare, Users, GraduationCap, Send, Plus, Clock, CheckCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -56,10 +58,26 @@ export default function CursoDetallePage() {
   const [loadingRespuesta, setLoadingRespuesta] = useState(false);  const [resultadosEvaluaciones, setResultadosEvaluaciones] = useState<any[]>([]);
   const [evaluacionDialogOpen, setEvaluacionDialogOpen] = useState(false);
   const [modoRevision, setModoRevision] = useState(false);
-  
-  // Estados para estudiantes
+    // Estados para estudiantes
   const [estudiantes, setEstudiantes] = useState<any[]>([]);
-  const [loadingEstudiantes, setLoadingEstudiantes] = useState(false);
+  const [loadingEstudiantes, setLoadingEstudiantes] = useState(false);  // Estados para comentarios
+  const [comentarios, setComentarios] = useState<{ [seccionId: string]: any[] }>({});
+  const [loadingComentarios, setLoadingComentarios] = useState<{ [seccionId: string]: boolean }>({});
+  const [nuevoComentario, setNuevoComentario] = useState<{ [seccionId: string]: string }>({});
+  const [enviandoComentario, setEnviandoComentario] = useState<{ [seccionId: string]: boolean }>({});
+
+  // Estados para consultas/mensajes
+  const [consultas, setConsultas] = useState<any[]>([]);
+  const [loadingConsultas, setLoadingConsultas] = useState(false);
+  const [nuevaConsulta, setNuevaConsulta] = useState({ titulo: '', mensaje: '' });
+  const [mostrarFormConsulta, setMostrarFormConsulta] = useState(false);
+  const [enviandoConsulta, setEnviandoConsulta] = useState(false);  const [respuestaConsulta, setRespuestaConsulta] = useState<{ [consultaId: string]: string }>({});
+  const [loadingRespuestaConsulta, setLoadingRespuestaConsulta] = useState<{ [consultaId: string]: boolean }>({});
+    // Refs para evitar múltiples ejecuciones
+  const comentarioRequestRef = useRef<{ [seccionId: string]: boolean }>({});
+  const consultaRequestRef = useRef<boolean>(false);
+  const lastCommentTimeRef = useRef<{ [seccionId: string]: number }>({});
+  const lastConsultaTimeRef = useRef<number>(0);
 
   const formatNeo4jDate = (dateStr: string) => {
     if (!dateStr) return 'No especificada';
@@ -69,7 +87,139 @@ export default function CursoDetallePage() {
     } catch {
       return 'Fecha inválida';
     }
-  };  useEffect(() => {
+  };
+
+  // Función para matricular al usuario automáticamente
+  const matricularUsuario = useCallback(async (cursoId: string, usuarioId: string) => {
+    try {
+      console.log('=== MATRICULANDO USUARIO AUTOMÁTICAMENTE ===');
+      console.log('Curso ID:', cursoId);
+      console.log('Usuario ID:', usuarioId);
+
+      const response = await fetch('/api/neo4jDB/matricular-usuario', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          usuarioId: usuarioId,
+          cursoId: cursoId
+        })
+      });
+
+      const data = await response.json();
+      console.log('Resultado de matriculación:', data);
+
+      if (response.ok) {
+        console.log('Usuario matriculado exitosamente');
+        return true;
+      } else {
+        console.log('Error al matricular:', data.message);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error matriculando usuario:', error);
+      return false;
+    }
+  }, []);
+
+  // Funciones para comentarios
+  const cargarComentarios = useCallback(async (seccionId: string) => {
+    if (!curso) return;
+    
+    console.log('=== DEBUGGING CARGAR COMENTARIOS ===');
+    console.log('Cargando comentarios para sección:', seccionId);
+    console.log('Curso ID:', curso._id || curso.id);
+    
+    setLoadingComentarios(prev => ({ ...prev, [seccionId]: true }));
+    try {
+      const response = await fetch(`/api/neo4jDB/comentarios-seccion?seccionId=${seccionId}&cursoId=${curso._id || curso.id}`);
+      const data = await response.json();
+      
+      console.log('Respuesta del API:', data);
+      
+      if (response.ok) {
+        // Procesar comentarios para arreglar las fechas
+        const comentariosProcesados = (data.comentarios || []).map((comentario: any) => ({
+          ...comentario,
+          fecha: comentario.fecha ? new Date(comentario.fecha).toLocaleDateString('es-ES') : 'Sin fecha',
+          epochMillis: comentario.epochMillis || Date.now()
+        }));
+        
+        console.log('Comentarios procesados:', comentariosProcesados);
+        setComentarios(prev => ({ ...prev, [seccionId]: comentariosProcesados }));
+      } else if (response.status === 404) {
+        // La sección de comentarios no existe aún, crear array vacío
+        console.log('Sección de comentarios no encontrada, se creará al agregar el primer comentario');
+        setComentarios(prev => ({ ...prev, [seccionId]: [] }));
+      } else {
+        console.error('Error al cargar comentarios:', data.error);
+        setComentarios(prev => ({ ...prev, [seccionId]: [] }));
+      }
+    } catch (e) {
+      console.error('Error cargando comentarios:', e);
+      setComentarios(prev => ({ ...prev, [seccionId]: [] }));
+    } finally {
+      setLoadingComentarios(prev => ({ ...prev, [seccionId]: false }));
+    }
+  }, [curso]);  const agregarComentario = useCallback(async (seccionId: string) => {
+    const texto = nuevoComentario[seccionId]?.trim();
+    if (!texto || !user || !curso || enviandoComentario[seccionId] || comentarioRequestRef.current[seccionId]) return;
+
+    // Prevenir envíos muy rápidos (debounce de 1 segundo)
+    const now = Date.now();
+    if (lastCommentTimeRef.current[seccionId] && now - lastCommentTimeRef.current[seccionId] < 1000) {
+      console.log('Comentario bloqueado por debounce');
+      return;
+    }
+    lastCommentTimeRef.current[seccionId] = now;
+
+    // Prevenir múltiples envíos usando ref y estado
+    comentarioRequestRef.current[seccionId] = true;
+    setEnviandoComentario(prev => ({ ...prev, [seccionId]: true }));
+
+    // Debug: Log what we're sending
+    console.log('=== DEBUGGING AGREGAR COMENTARIO ===');
+    console.log('Usuario completo:', user);
+    console.log('Curso completo:', curso);
+    console.log('Datos a enviar:', {
+      seccionId,
+      cursoId: curso._id || curso.id,
+      usuarioId: user._id,
+      texto
+    });
+
+    try {
+      const response = await fetch('/api/neo4jDB/agregar-comentario', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seccionId,
+          cursoId: curso._id || curso.id,
+          usuarioId: user._id,
+          texto
+        })
+      });
+
+      if (response.ok) {
+        // Limpiar el input
+        setNuevoComentario(prev => ({ ...prev, [seccionId]: '' }));
+        // Recargar comentarios
+        await cargarComentarios(seccionId);
+        toast("Comentario agregado exitosamente");
+      } else {
+        const data = await response.json();
+        console.error('Error al agregar comentario:', data.error);
+        toast(`Error al agregar comentario: "${data.error}"`);
+      }    } catch (e) {
+      console.error('Error agregando comentario:', e);
+      toast("Error al agregar el comentario");
+    } finally {
+      // Liberar el estado de envío y el ref
+      comentarioRequestRef.current[seccionId] = false;
+      setEnviandoComentario(prev => ({ ...prev, [seccionId]: false }));
+    }
+  }, [curso, user, nuevoComentario, cargarComentarios, enviandoComentario]);
+
+  useEffect(() => {
     const fetchCursoDetalle = async () => {
       try {
         setLoading(true);
@@ -78,9 +228,63 @@ export default function CursoDetallePage() {
           // Cargar información del curso desde Neo4j
         const response = await fetch(`/api/neo4jDB/curso-completo-comentarios?cursoId=${courseId}&usuarioId=${user._id}`);
         if (!response.ok) throw new Error('Error al cargar el curso');
+          const data = await response.json();          // Debug: Log the complete course data to see its structure
+        console.log('=== DEBUGGING CURSO COMPLETO ===');
+        console.log('Datos completos del curso:', JSON.stringify(data.curso, null, 2));
+          // Verificar estructura de módulos vs contenido
+        if (data.curso.modulos) {
+          console.log('=== MÓDULOS ENCONTRADOS ===');
+          console.log('Total de módulos:', data.curso.modulos.length);
+          
+          data.curso.modulos.forEach((mod: any, index: number) => {
+            console.log(`\n--- MÓDULO ${index} ---`);
+            console.log('Nombre:', mod.nombre);
+            console.log('Descripción:', mod.descripcion);
+            console.log('Estructura completa:', JSON.stringify(mod, null, 2));
+            
+            if (mod.subsecciones) {
+              console.log(`✅ SUBSECCIONES ENCONTRADAS: ${mod.subsecciones.length}`);
+              mod.subsecciones.forEach((sub: any, subIndex: number) => {
+                console.log(`  Subsección ${subIndex}:`, JSON.stringify(sub, null, 2));
+              });
+            } else {
+              console.log('❌ NO HAY SUBSECCIONES EN ESTE MÓDULO');
+              console.log('Propiedades del módulo:', Object.keys(mod));
+            }
+          });
+        } else {
+          console.log('❌ NO HAY MÓDULOS EN EL CURSO - VERIFICANDO CONTENIDO');
+        }
         
-        const data = await response.json();        // La respuesta tiene la estructura { curso: {...}, seccionesComentarios: [...] }
+        // Verificar estructura de contenido
+        if (data.curso.contenido) {
+          console.log('=== CONTENIDO ENCONTRADO ===');
+          console.log('Total de secciones de contenido:', data.curso.contenido.length);
+          
+          data.curso.contenido.forEach((seccion: any, index: number) => {
+            console.log(`\n--- SECCIÓN DE CONTENIDO ${index} ---`);
+            console.log('Nombre:', seccion.nombre);
+            console.log('Estructura completa:', JSON.stringify(seccion, null, 2));
+            
+            if (seccion.subsecciones) {
+              console.log(`✅ SUBSECCIONES ENCONTRADAS EN CONTENIDO: ${seccion.subsecciones.length}`);
+              seccion.subsecciones.forEach((sub: any, subIndex: number) => {
+                console.log(`  Subsección ${subIndex}:`, JSON.stringify(sub, null, 2));
+              });
+            } else {
+              console.log('❌ NO HAY SUBSECCIONES EN ESTA SECCIÓN DE CONTENIDO');
+            }
+          });
+        } else {
+          console.log('❌ NO HAY CONTENIDO EN EL CURSO');
+        }
+          // La respuesta tiene la estructura { curso: {...}, seccionesComentarios: [...] }
         setCurso(data.curso);
+        
+        // Matricular al usuario automáticamente si no está matriculado
+        if (user?._id && data.curso?._id) {
+          await matricularUsuario(data.curso._id, user._id);
+        }
         
         // Ya no necesitamos cargar desde MongoDB separadamente ya que
         // la información del curso viene completa desde Neo4j/MongoDB en el API
@@ -135,7 +339,7 @@ export default function CursoDetallePage() {
     };    if (params?.id && user?._id) {
       fetchCursoDetalle();
     }
-  }, [params?.id, user?._id]);  // Funciones para evaluaciones
+  }, [params?.id, user?._id, matricularUsuario]);// Funciones para evaluaciones
   const iniciarEvaluacion = (evaluacion: any) => {
     console.log('Evaluación completa:', evaluacion);
     console.log('Preguntas de la evaluación:', evaluacion.preguntas);
@@ -233,11 +437,136 @@ export default function CursoDetallePage() {
 
   const yaRealizoEvaluacion = (evaluacionId: string) => {
     return resultadosEvaluaciones.some(resultado => resultado.idevaluacion === evaluacionId);
-  };
-
-  const obtenerResultadoEvaluacion = (evaluacionId: string) => {
+  };  const obtenerResultadoEvaluacion = (evaluacionId: string) => {
     return resultadosEvaluaciones.find(resultado => resultado.idevaluacion === evaluacionId);
   };
+
+  // Funciones para consultas/mensajes
+  const cargarConsultas = useCallback(async () => {
+    if (!curso) return;
+    
+    console.log('=== CARGANDO CONSULTAS ===');
+    console.log('Curso ID:', curso._id || curso.id);
+    
+    setLoadingConsultas(true);
+    try {
+      const response = await fetch(`/api/neo4jDB/consultas-curso?cursoId=${curso._id || curso.id}`);
+      const data = await response.json();
+      
+      console.log('Respuesta de consultas:', data);
+      
+      if (response.ok) {
+        setConsultas(data.consultas || []);
+      } else {
+        console.error('Error al cargar consultas:', data.error);
+        setConsultas([]);
+      }
+    } catch (e) {
+      console.error('Error cargando consultas:', e);
+      setConsultas([]);
+    } finally {
+      setLoadingConsultas(false);
+    }
+  }, [curso]);  const crearConsulta = useCallback(async () => {
+    if (!nuevaConsulta.titulo.trim() || !nuevaConsulta.mensaje.trim() || !user || !curso || enviandoConsulta || consultaRequestRef.current) return;
+
+    // Prevenir envíos muy rápidos (debounce de 1 segundo)
+    const now = Date.now();
+    if (lastConsultaTimeRef.current && now - lastConsultaTimeRef.current < 1000) {
+      console.log('Consulta bloqueada por debounce');
+      return;
+    }
+    lastConsultaTimeRef.current = now;
+
+    // Prevenir múltiples envíos usando ref y estado
+    consultaRequestRef.current = true;
+    setEnviandoConsulta(true);
+
+    console.log('=== CREANDO NUEVA CONSULTA ===');
+    console.log('Datos:', {
+      cursoId: curso._id || curso.id,
+      estudianteId: user._id,
+      titulo: nuevaConsulta.titulo,
+      mensaje: nuevaConsulta.mensaje
+    });
+
+    try {
+      const response = await fetch('/api/neo4jDB/consultas-curso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cursoId: curso._id || curso.id,
+          estudianteId: user._id,
+          titulo: nuevaConsulta.titulo,
+          mensaje: nuevaConsulta.mensaje
+        })
+      });
+
+      if (response.ok) {
+        setNuevaConsulta({ titulo: '', mensaje: '' });
+        setMostrarFormConsulta(false);
+        await cargarConsultas();
+        toast("Consulta enviada exitosamente");      } else {
+        const data = await response.json();
+        console.error('Error al crear consulta:', data.error);
+        toast(`Error al enviar consulta: "${data.error}"`);
+      }
+    } catch (e) {
+      console.error('Error creando consulta:', e);
+      toast("Error al enviar la consulta");    } finally {
+      // Liberar el estado de envío y el ref
+      consultaRequestRef.current = false;
+      setEnviandoConsulta(false);
+    }
+  }, [curso, user, nuevaConsulta, cargarConsultas, enviandoConsulta]);
+
+  const responderConsulta = useCallback(async (consultaId: string) => {
+    const mensaje = respuestaConsulta[consultaId]?.trim();
+    if (!mensaje || !user || !curso) return;
+
+    console.log('=== RESPONDIENDO CONSULTA ===');
+    console.log('Datos:', {
+      consultaId,
+      docenteId: user._id,
+      mensaje
+    });
+
+    setLoadingRespuestaConsulta(prev => ({ ...prev, [consultaId]: true }));
+
+    try {
+      const response = await fetch('/api/neo4jDB/responder-consulta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          consultaId,
+          docenteId: user._id,
+          mensaje
+        })
+      });
+
+      if (response.ok) {
+        setRespuestaConsulta(prev => ({ ...prev, [consultaId]: '' }));
+        await cargarConsultas();
+        toast("Respuesta enviada exitosamente");
+      } else {
+        const data = await response.json();
+        console.error('Error al responder consulta:', data.error);
+        toast(`Error al enviar respuesta: "${data.error}"`);
+      }
+    } catch (e) {
+      console.error('Error respondiendo consulta:', e);
+      toast("Error al enviar la respuesta");
+    } finally {
+      setLoadingRespuestaConsulta(prev => ({ ...prev, [consultaId]: false }));
+    }
+  }, [curso, user, respuestaConsulta, cargarConsultas]);
+
+  // Cargar consultas cuando se carga el curso
+  useEffect(() => {
+    if (curso && activeTab === 'consultas') {
+      cargarConsultas();
+    }
+  }, [curso, activeTab, cargarConsultas]);
 
   if (loading) {
     return (
@@ -339,7 +668,7 @@ export default function CursoDetallePage() {
                 <CardTitle className="text-xl">Contenido del Curso</CardTitle>
               </CardHeader>
               <CardContent className="flex-1">                <Tabs defaultValue="modulos" className="h-full" onValueChange={setActiveTab}>
-                  <TabsList className="grid w-full grid-cols-3">
+                  <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="modulos">
                       <GraduationCap className="w-4 h-4 mr-1" />
                       Módulos
@@ -348,17 +677,29 @@ export default function CursoDetallePage() {
                       <MessageSquare className="w-4 h-4 mr-1" />
                       Evaluaciones
                     </TabsTrigger>
+                    <TabsTrigger value="consultas">
+                      <MessageSquare className="w-4 h-4 mr-1" />
+                      Consultas
+                    </TabsTrigger>
                     <TabsTrigger value="estudiantes">
                       <Users className="w-4 h-4 mr-1" />
                       Estudiantes
                     </TabsTrigger>
-                  </TabsList>                  <TabsContent value="modulos" className="mt-4 h-full">
+                  </TabsList><TabsContent value="modulos" className="mt-4 h-full">
                     <ScrollArea className="h-[60vh] w-full pr-2">
                       {(!curso.modulos || curso.modulos.length === 0) && (!curso.contenido || curso.contenido.length === 0) ? (
                         <div className="text-center py-8">
                           <p className="text-gray-500">No hay módulos disponibles en este curso.</p>
                         </div>                      ) : (
                         <div className="space-y-4">
+                          {/* Indicador de módulos */}
+                          {curso.modulos && curso.modulos.length > 0 && (
+                            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                              <h3 className="font-semibold text-blue-800">📚 Módulos del Curso ({curso.modulos.length})</h3>
+                              <p className="text-sm text-blue-600">Los módulos pueden contener subsecciones adicionales</p>
+                            </div>
+                          )}
+                          
                           {/* Renderizar módulos de Neo4j si existen */}
                           {curso.modulos && curso.modulos.length > 0 && curso.modulos.map((mod: any, i: number) => (
                             <div key={i} className="border rounded-lg">
@@ -424,86 +765,168 @@ export default function CursoDetallePage() {
                                         </div>
                                       </ScrollArea>
                                     </div>
-                                  )}
-
-                                  {/* Subsecciones */}
-                                  {mod.subsecciones && mod.subsecciones.length > 0 && (
-                                    <div>
-                                      <h4 className="font-medium text-base mb-3 text-gray-800">Subsecciones:</h4>
-                                      <ScrollArea className="max-h-[300px] w-full pr-2">
-                                        <div className="ml-4 space-y-3">
-                                          {mod.subsecciones.map((sub: any, k: number) => (
-                                            <div key={k} className="border rounded-lg border-gray-200">
-                                              <Collapsible 
-                                                open={openSubseccion?.mod === i && openSubseccion?.sub === k} 
-                                                onOpenChange={open => setOpenSubseccion(open ? { mod: i, sub: k } : null)}
-                                              >
-                                                <CollapsibleTrigger className="w-full flex justify-between items-center px-3 py-2 cursor-pointer bg-gray-100 hover:bg-gray-200 rounded-t-lg">
-                                                  <span className="font-medium text-sm text-left">{sub.nombre}</span>
-                                                  <span className="text-xs text-gray-600">
-                                                    {openSubseccion?.mod === i && openSubseccion?.sub === k ? 'Cerrar' : 'Abrir'}
-                                                  </span>
-                                                </CollapsibleTrigger>
-                                                <CollapsibleContent className="p-3 bg-white">
-                                                  {sub.descripcion && (
-                                                    <div className="mb-3 text-xs text-gray-700 bg-gray-50 p-2 rounded">{sub.descripcion}</div>
-                                                  )}
-                                                  <div className="space-y-2 max-h-[15vh] overflow-y-auto">
-                                                    {sub.contenidos && sub.contenidos.map((cont: any, j: number) => (
-                                                      <div key={j} className="border rounded-lg p-2 bg-gray-50">
-                                                        <div className="font-semibold capitalize mb-1 text-xs text-blue-600">
-                                                          {cont.tipo === 'texto' ? '📝 Texto' : 
-                                                           cont.tipo === 'documento' ? '📄 Documento' : 
-                                                           cont.tipo === 'video' ? '🎥 Video' : 
-                                                           cont.tipo === 'imagen' ? '🖼️ Imagen' :
-                                                           cont.tipo === 'comentarios' ? '💬 Comentarios' : 'Desconocido'}
+                                  )}                                  {/* Subsecciones */}
+                                  <div className="mt-4">
+                                    {(() => {
+                                      console.log(`Verificando subsecciones para módulo ${i}:`, mod);
+                                      return null;
+                                    })()}
+                                    {mod.subsecciones && Array.isArray(mod.subsecciones) && mod.subsecciones.length > 0 ? (
+                                      <div>
+                                        <h4 className="font-medium text-base mb-3 text-green-700 bg-green-50 p-2 rounded">
+                                          🔹 Subsecciones ({mod.subsecciones.length}):
+                                        </h4>
+                                        <ScrollArea className="max-h-[400px] w-full pr-2">
+                                          <div className="ml-4 space-y-3">
+                                            {mod.subsecciones.map((sub: any, k: number) => (
+                                              <div key={k} className="border border-green-200 rounded-lg bg-green-50">
+                                                <Collapsible 
+                                                  open={openSubseccion?.mod === i && openSubseccion?.sub === k} 
+                                                  onOpenChange={open => setOpenSubseccion(open ? { mod: i, sub: k } : null)}
+                                                >
+                                                  <CollapsibleTrigger className="w-full flex justify-between items-center px-3 py-3 cursor-pointer bg-green-100 hover:bg-green-200 rounded-t-lg">
+                                                    <span className="font-medium text-sm text-left text-green-800">
+                                                      📂 {sub.nombre || `Subsección ${k + 1}`}
+                                                    </span>
+                                                    <span className="text-xs text-green-600">
+                                                      {openSubseccion?.mod === i && openSubseccion?.sub === k ? 'Cerrar' : 'Abrir'}
+                                                    </span>
+                                                  </CollapsibleTrigger>
+                                                  <CollapsibleContent className="p-3 bg-white border-t border-green-200">
+                                                    {sub.descripcion && (
+                                                      <div className="mb-3 text-xs text-gray-700 bg-gray-50 p-2 rounded">{sub.descripcion}</div>
+                                                    )}
+                                                    <div className="space-y-2 max-h-[20vh] overflow-y-auto">
+                                                      {sub.contenidos && sub.contenidos.length > 0 ? (
+                                                        sub.contenidos.map((cont: any, j: number) => (
+                                                          <div key={j} className="border rounded-lg p-2 bg-green-50">
+                                                            <div className="font-semibold capitalize mb-1 text-xs text-green-600">
+                                                              {cont.tipo === 'texto' ? '📝 Texto' : 
+                                                               cont.tipo === 'documento' ? '📄 Documento' : 
+                                                               cont.tipo === 'video' ? '🎥 Video' : 
+                                                               cont.tipo === 'imagen' ? '🖼️ Imagen' :
+                                                               cont.tipo === 'comentarios' ? '💬 Comentarios' : 'Desconocido'}
+                                                            </div>
+                                                            {cont.titulo && (
+                                                              <div className="text-xs font-medium text-gray-800 mb-1">{cont.titulo}</div>
+                                                            )}
+                                                            {cont.tipo === 'texto' && (
+                                                              <div className="text-gray-700 whitespace-pre-line text-xs">{cont.valor}</div>
+                                                            )}
+                                                            {cont.tipo === 'video' && (
+                                                              <div className="mt-1">
+                                                                <video src={cont.valor} controls className="w-full max-h-32 rounded" />
+                                                              </div>
+                                                            )}
+                                                            {cont.tipo === 'imagen' && (
+                                                              <div className="mt-1 flex justify-center">
+                                                                <img src={cont.valor} alt="Imagen" className="max-w-full max-h-32 object-contain rounded" />
+                                                              </div>
+                                                            )}
+                                                            {cont.tipo === 'documento' && (
+                                                              <div className="mt-1">
+                                                                <a href={cont.valor} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline text-xs">
+                                                                  Ver documento
+                                                                </a>
+                                                              </div>                                                            )}
+                                                            {cont.tipo === 'comentarios' && (
+                                                              <div className="mt-1">
+                                                                <div className="bg-blue-50 border border-blue-200 rounded p-2">
+                                                                  <div className="flex items-center justify-between mb-2">
+                                                                    <h5 className="font-medium text-blue-800 text-xs">💬 {cont.titulo || 'Comentarios'}</h5>
+                                                                    <button
+                                                                      onClick={() => cargarComentarios(cont.valor)}
+                                                                      className="text-xs text-blue-600 hover:text-blue-800"
+                                                                    >
+                                                                      {comentarios[cont.valor] ? 'Actualizar' : 'Cargar'}
+                                                                    </button>
+                                                                  </div>
+                                                                  
+                                                                  {/* Lista de comentarios */}
+                                                                  {loadingComentarios[cont.valor] ? (
+                                                                    <div className="text-center py-1">
+                                                                      <div className="animate-spin inline-block w-3 h-3 border border-blue-600 border-t-transparent rounded-full"></div>
+                                                                      <span className="ml-1 text-xs text-blue-600">Cargando...</span>
+                                                                    </div>
+                                                                  ) : comentarios[cont.valor] && comentarios[cont.valor].length > 0 ? (
+                                                                    <div className="space-y-1 mb-2 max-h-24 overflow-y-auto">
+                                                                      {comentarios[cont.valor].map((comentario: any, idx: number) => (
+                                                                        <div key={idx} className="bg-white p-1 rounded border text-xs">
+                                                                          <div className="flex justify-between items-start">
+                                                                            <span className="font-medium text-gray-800">{comentario.nombreUsuario}</span>
+                                                                            <span className="text-xs text-gray-500">{new Date(comentario.fecha).toLocaleString()}</span>
+                                                                          </div>
+                                                                          <p className="text-gray-700">{comentario.texto}</p>
+                                                                        </div>
+                                                                      ))}
+                                                                    </div>
+                                                                  ) : comentarios[cont.valor] ? (
+                                                                    <div className="text-xs text-gray-500 mb-2 py-1 text-center">
+                                                                      ¡Sé el primero en comentar!
+                                                                    </div>
+                                                                  ) : null}
+                                                                  
+                                                                  {/* Input para nuevo comentario */}
+                                                                  <div className="flex gap-1">
+                                                                    <input
+                                                                      type="text"
+                                                                      placeholder="Escribe tu comentario..."
+                                                                      value={nuevoComentario[cont.valor] || ''}
+                                                                      onChange={(e) => setNuevoComentario(prev => ({ ...prev, [cont.valor]: e.target.value }))}
+                                                                      className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                                                                      onKeyPress={(e) => {
+                                                                        if (e.key === 'Enter') {
+                                                                          agregarComentario(cont.valor);
+                                                                        }
+                                                                      }}
+                                                                    />                                                                    <button
+                                                                      onClick={() => agregarComentario(cont.valor)}
+                                                                      disabled={!nuevoComentario[cont.valor]?.trim() || enviandoComentario[cont.valor]}
+                                                                      className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:bg-gray-400"
+                                                                    >
+                                                                      {enviandoComentario[cont.valor] ? 'Enviando...' : 'Enviar'}
+                                                                    </button>
+                                                                  </div>
+                                                                </div>
+                                                              </div>
+                                                            )}
+                                                          </div>
+                                                        ))
+                                                      ) : (
+                                                        <div className="text-xs text-gray-500 italic">
+                                                          No hay contenidos en esta subsección
                                                         </div>
-                                                        {cont.titulo && (
-                                                          <div className="text-xs font-medium text-gray-800 mb-1">{cont.titulo}</div>
-                                                        )}
-                                                        {cont.tipo === 'texto' && (
-                                                          <div className="text-gray-700 whitespace-pre-line text-xs">{cont.valor}</div>
-                                                        )}
-                                                        {cont.tipo === 'video' && (
-                                                          <div className="mt-1">
-                                                            <video src={cont.valor} controls className="w-full max-h-32 rounded" />
-                                                          </div>
-                                                        )}
-                                                        {cont.tipo === 'imagen' && (
-                                                          <div className="mt-1 flex justify-center">
-                                                            <img src={cont.valor} alt="Imagen" className="max-w-full max-h-32 object-contain rounded" />
-                                                          </div>
-                                                        )}
-                                                        {cont.tipo === 'documento' && (
-                                                          <div className="mt-1">
-                                                            <a href={cont.valor} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline text-xs">
-                                                              Ver documento
-                                                            </a>
-                                                          </div>
-                                                        )}
-                                                        {cont.tipo === 'comentarios' && (
-                                                          <div className="mt-1 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
-                                                            💬 Sección de comentarios - Puedes participar e interactuar aquí
-                                                          </div>
-                                                        )}
-                                                      </div>
-                                                    ))}
-                                                  </div>
-                                                </CollapsibleContent>
-                                              </Collapsible>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </ScrollArea>
-                                    </div>                                  )}
+                                                      )}
+                                                    </div>
+                                                  </CollapsibleContent>
+                                                </Collapsible>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </ScrollArea>
+                                      </div>
+                                    ) : (
+                                      <div className="text-sm text-red-600 bg-red-50 p-3 rounded border border-red-200">
+                                        ❌ No se encontraron subsecciones en este módulo.
+                                        <br />
+                                        <span className="text-xs">
+                                          Estado: {mod.subsecciones ? `Array con ${mod.subsecciones.length} elementos` : 'Campo subsecciones no existe'}
+                                        </span>
+                                        <details className="mt-2">
+                                          <summary className="cursor-pointer text-xs font-semibold">🔍 Ver estructura completa del módulo</summary>
+                                          <pre className="text-xs bg-gray-100 p-2 mt-1 rounded overflow-auto max-h-32">
+                                            {JSON.stringify(mod, null, 2)}
+                                          </pre>
+                                        </details>
+                                      </div>
+                                    )}
+                                  </div>
                                 </CollapsibleContent>
                               </Collapsible>
                             </div>
                           ))}
                         </div>
-                      )}
-                      
-                      {/* Renderizar contenido de MongoDB si existe */}
+                      )}                          {/* Renderizar contenido de MongoDB si existe */}
                       {curso.contenido && curso.contenido.length > 0 && curso.contenido.map((seccion: any, i: number) => (
                         <div key={`mongo-${i}`} className="border rounded-lg mt-4">
                           <Collapsible open={openModulo === (curso.modulos?.length || 0) + i} onOpenChange={open => setOpenModulo(open ? (curso.modulos?.length || 0) + i : null)}>
@@ -548,14 +971,218 @@ export default function CursoDetallePage() {
                                           <div className="mt-2 flex justify-center">
                                             <img src={cont.valor || cont.url} alt="Imagen del curso" className="max-w-full max-h-64 object-contain rounded" />
                                           </div>
-                                        )}
-                                        {cont.tipo === 'documento' && (
+                                        )}                                        {cont.tipo === 'documento' && (
                                           <div className="mt-2">
                                             <a href={cont.valor || cont.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline text-sm">
                                               Ver documento
                                             </a>
                                           </div>
                                         )}
+                                        {cont.tipo === 'comentarios' && (
+                                          <div className="w-full border rounded-lg bg-white mt-2">
+                                            <div className="p-3 border-b bg-gray-50">
+                                              <h4 className="font-medium text-gray-800">💬 {cont.titulo}</h4>
+                                              <p className="text-sm text-gray-600">Participa en la discusión</p>
+                                            </div>
+                                            
+                                            {/* Área de comentarios con scroll */}
+                                            <ScrollArea className="h-[300px] p-3">
+                                              {loadingComentarios[cont.valor] ? (
+                                                <div className="flex justify-center items-center h-20">
+                                                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                                                </div>
+                                              ) : comentarios[cont.valor]?.length > 0 ? (
+                                                <div className="space-y-3">
+                                                  {comentarios[cont.valor].map((comentario: any, idx: number) => (
+                                                    <div key={idx} className="border-l-4 border-blue-200 pl-3 py-2 bg-gray-50 rounded">
+                                                      <div className="flex items-center gap-2 mb-1">
+                                                        <span className="font-medium text-sm text-blue-700">{comentario.autor || comentario.nombreUsuario}</span>
+                                                        <span className="text-xs text-gray-500">
+                                                          {new Date(comentario.fecha).toLocaleDateString()} - {new Date(comentario.fecha).toLocaleTimeString()}
+                                                        </span>
+                                                      </div>
+                                                      <p className="text-sm text-gray-700">{comentario.texto}</p>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              ) : (
+                                                <div className="text-center text-gray-500 py-8">
+                                                  <p>No hay comentarios aún</p>
+                                                  <Button 
+                                                    variant="outline" 
+                                                    size="sm" 
+                                                    className="mt-2"
+                                                    onClick={() => cargarComentarios(cont.valor)}
+                                                  >
+                                                    Cargar comentarios
+                                                  </Button>
+                                                </div>
+                                              )}
+                                            </ScrollArea>
+                                            
+                                            {/* Formulario para agregar comentario */}
+                                            <div className="p-3 border-t bg-gray-50">
+                                              <div className="flex gap-2">
+                                                <input
+                                                  type="text"
+                                                  placeholder="Escribe un comentario..."
+                                                  value={nuevoComentario[cont.valor] || ''}
+                                                  onChange={(e) => setNuevoComentario(prev => ({ 
+                                                    ...prev, 
+                                                    [cont.valor]: e.target.value 
+                                                  }))}
+                                                  onKeyPress={(e) => {
+                                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                                      e.preventDefault();
+                                                      agregarComentario(cont.valor);
+                                                    }
+                                                  }}
+                                                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                />                                                <Button 
+                                                  size="sm" 
+                                                  onClick={() => agregarComentario(cont.valor)}
+                                                  disabled={!nuevoComentario[cont.valor]?.trim() || enviandoComentario[cont.valor]}
+                                                >
+                                                  {enviandoComentario[cont.valor] ? 'Enviando...' : 'Enviar'}
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        )}</div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}                              {/* Subsecciones del contenido */}
+                              {seccion.subsecciones && Array.isArray(seccion.subsecciones) && seccion.subsecciones.length > 0 && (
+                                <div className="mt-4">
+                                  <h4 className="font-medium text-base mb-3 text-gray-800">Subsecciones:</h4>
+                                  <div className="space-y-3">
+                                    {seccion.subsecciones.map((sub: any, k: number) => (
+                                      <div key={k} className="border rounded-lg">
+                                        <Collapsible 
+                                          open={openSubseccion?.mod === (curso.modulos?.length || 0) + i && openSubseccion?.sub === k} 
+                                          onOpenChange={open => setOpenSubseccion(open ? { mod: (curso.modulos?.length || 0) + i, sub: k } : null)}
+                                        >
+                                          <CollapsibleTrigger className="w-full flex justify-between items-center px-4 py-3 cursor-pointer bg-gray-50 hover:bg-gray-100 rounded-t-lg">
+                                            <span className="font-semibold text-left">{sub.nombre || `Subsección ${k + 1}`}</span>
+                                            <span className="text-xs text-gray-500">
+                                              {openSubseccion?.mod === (curso.modulos?.length || 0) + i && openSubseccion?.sub === k ? 'Cerrar' : 'Abrir'}
+                                            </span>
+                                          </CollapsibleTrigger>
+                                          <CollapsibleContent className="p-4 space-y-4 bg-white">
+                                            {sub.descripcion && (
+                                              <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded">{sub.descripcion}</div>
+                                            )}
+                                            {sub.contenidos && sub.contenidos.length > 0 && (
+                                              <div className="space-y-3">
+                                                {sub.contenidos.map((cont: any, j: number) => (
+                                                  <div key={j} className="border rounded-lg p-3 bg-gray-50">
+                                                    <div className="font-semibold capitalize mb-2 text-sm text-blue-600">
+                                                      {cont.tipo === 'texto' ? '📝 Texto' : 
+                                                       cont.tipo === 'documento' ? '📄 Documento' : 
+                                                       cont.tipo === 'video' ? '🎥 Video' : 
+                                                       cont.tipo === 'imagen' ? '🖼️ Imagen' :
+                                                       cont.tipo === 'comentarios' ? '💬 Comentarios' : 'Desconocido'}
+                                                    </div>
+                                                    {cont.titulo && (
+                                                      <div className="text-sm font-medium text-gray-800 mb-2">{cont.titulo}</div>
+                                                    )}
+                                                    {cont.tipo === 'texto' && (
+                                                      <div className="text-gray-700 whitespace-pre-line text-sm">{cont.valor || cont.contenido}</div>
+                                                    )}
+                                                    {cont.tipo === 'video' && (
+                                                      <div className="mt-2">
+                                                        <video src={cont.valor || cont.url} controls className="w-full max-h-64 rounded" />
+                                                      </div>
+                                                    )}
+                                                    {cont.tipo === 'imagen' && (
+                                                      <div className="mt-2 flex justify-center">
+                                                        <img src={cont.valor || cont.url} alt="Imagen" className="max-w-full max-h-64 object-contain rounded" />
+                                                      </div>
+                                                    )}                                                    {cont.tipo === 'documento' && (
+                                                      <div className="mt-2">
+                                                        <a href={cont.valor || cont.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline text-sm">
+                                                          Ver documento
+                                                        </a>
+                                                      </div>
+                                                    )}
+                                                    {cont.tipo === 'comentarios' && (
+                                                      <div className="w-full border rounded-lg bg-white mt-2">
+                                                        <div className="p-3 border-b bg-gray-50">
+                                                          <h4 className="font-medium text-gray-800">💬 {cont.titulo}</h4>
+                                                          <p className="text-sm text-gray-600">Participa en la discusión</p>
+                                                        </div>
+                                                        
+                                                        {/* Área de comentarios con scroll */}
+                                                        <ScrollArea className="h-[250px] p-3">
+                                                          {loadingComentarios[cont.valor] ? (
+                                                            <div className="flex justify-center items-center h-20">
+                                                              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                                                            </div>
+                                                          ) : comentarios[cont.valor]?.length > 0 ? (
+                                                            <div className="space-y-3">
+                                                              {comentarios[cont.valor].map((comentario: any, idx: number) => (
+                                                                <div key={idx} className="border-l-4 border-blue-200 pl-3 py-2 bg-gray-50 rounded">
+                                                                  <div className="flex items-center gap-2 mb-1">
+                                                                    <span className="font-medium text-sm text-blue-700">{comentario.autor || comentario.nombreUsuario}</span>
+                                                                    <span className="text-xs text-gray-500">
+                                                                      {new Date(comentario.fecha).toLocaleDateString()} - {new Date(comentario.fecha).toLocaleTimeString()}
+                                                                    </span>
+                                                                  </div>
+                                                                  <p className="text-sm text-gray-700">{comentario.texto}</p>
+                                                                </div>
+                                                              ))}
+                                                            </div>
+                                                          ) : (
+                                                            <div className="text-center text-gray-500 py-8">
+                                                              <p>No hay comentarios aún</p>
+                                                              <Button 
+                                                                variant="outline" 
+                                                                size="sm" 
+                                                                className="mt-2"
+                                                                onClick={() => cargarComentarios(cont.valor)}
+                                                              >
+                                                                Cargar comentarios
+                                                              </Button>
+                                                            </div>
+                                                          )}
+                                                        </ScrollArea>
+                                                        
+                                                        {/* Formulario para agregar comentario */}
+                                                        <div className="p-3 border-t bg-gray-50">
+                                                          <div className="flex gap-2">
+                                                            <input
+                                                              type="text"
+                                                              placeholder="Escribe un comentario..."
+                                                              value={nuevoComentario[cont.valor] || ''}
+                                                              onChange={(e) => setNuevoComentario(prev => ({ 
+                                                                ...prev, 
+                                                                [cont.valor]: e.target.value 
+                                                              }))}
+                                                              onKeyPress={(e) => {
+                                                                if (e.key === 'Enter' && !e.shiftKey) {
+                                                                  e.preventDefault();
+                                                                  agregarComentario(cont.valor);
+                                                                }
+                                                              }}
+                                                              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                            />                                                            <Button 
+                                                              size="sm" 
+                                                              onClick={() => agregarComentario(cont.valor)}
+                                                              disabled={!nuevoComentario[cont.valor]?.trim() || enviandoComentario[cont.valor]}
+                                                            >
+                                                              {enviandoComentario[cont.valor] ? 'Enviando...' : 'Enviar'}
+                                                            </Button>
+                                                          </div>
+                                                        </div>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </CollapsibleContent>
+                                        </Collapsible>
                                       </div>
                                     ))}
                                   </div>
@@ -651,6 +1278,176 @@ export default function CursoDetallePage() {
                               </div>
                             );
                           })}
+                        </div>
+                      )}                    </ScrollArea>
+                  </TabsContent>
+
+                  <TabsContent value="consultas" className="mt-4">
+                    <ScrollArea className="h-[60vh] w-full pr-2">
+                      {/* Botón para nueva consulta - solo para estudiantes */}
+                      {user && curso && user.nombreUsuario !== curso.nombreUsuarioDocente && (
+                        <div className="mb-4">
+                          {!mostrarFormConsulta ? (
+                            <Button 
+                              onClick={() => setMostrarFormConsulta(true)}
+                              className="w-full"
+                            >
+                              <Plus className="w-4 h-4 mr-2" />
+                              Nueva Consulta
+                            </Button>
+                          ) : (
+                            <Card>
+                              <CardHeader>
+                                <CardTitle className="text-lg">Nueva Consulta</CardTitle>
+                              </CardHeader>
+                              <CardContent className="space-y-4">
+                                <div>
+                                  <label className="text-sm font-medium">Título</label>
+                                  <Input
+                                    value={nuevaConsulta.titulo}
+                                    onChange={(e) => setNuevaConsulta(prev => ({
+                                      ...prev,
+                                      titulo: e.target.value
+                                    }))}
+                                    placeholder="Escribe el título de tu consulta..."
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-sm font-medium">Mensaje</label>
+                                  <Textarea
+                                    value={nuevaConsulta.mensaje}
+                                    onChange={(e) => setNuevaConsulta(prev => ({
+                                      ...prev,
+                                      mensaje: e.target.value
+                                    }))}
+                                    placeholder="Describe tu duda o consulta..."
+                                    rows={4}
+                                  />
+                                </div>
+                                <div className="flex gap-2">                                  <Button 
+                                    onClick={crearConsulta}
+                                    disabled={!nuevaConsulta.titulo.trim() || !nuevaConsulta.mensaje.trim() || enviandoConsulta}
+                                  >
+                                    <Send className="w-4 h-4 mr-2" />
+                                    {enviandoConsulta ? 'Enviando...' : 'Enviar Consulta'}
+                                  </Button>
+                                  <Button 
+                                    variant="outline"
+                                    onClick={() => {
+                                      setMostrarFormConsulta(false);
+                                      setNuevaConsulta({ titulo: '', mensaje: '' });
+                                    }}
+                                  >
+                                    Cancelar
+                                  </Button>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Lista de consultas */}
+                      {loadingConsultas ? (
+                        <div className="space-y-4">
+                          {[...Array(3)].map((_, i) => (
+                            <Card key={i}>
+                              <CardContent className="p-4">
+                                <Skeleton className="h-4 w-3/4 mb-2" />
+                                <Skeleton className="h-3 w-1/2 mb-2" />
+                                <Skeleton className="h-16 w-full" />
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                      ) : consultas.length === 0 ? (
+                        <div className="text-center py-8">
+                          <MessageSquare className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                          <h3 className="text-lg font-medium text-gray-600 mb-2">No hay consultas</h3>
+                          <p className="text-gray-500">
+                            {user && curso && user.nombreUsuario !== curso.nombreUsuarioDocente 
+                              ? "¡Sé el primero en hacer una consulta!"
+                              : "Aún no hay consultas de los estudiantes."}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {consultas.map((consulta: any) => (
+                            <Card key={consulta.id}>
+                              <CardHeader>
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <CardTitle className="text-lg">{consulta.titulo}</CardTitle>
+                                    <p className="text-sm text-gray-600 mt-1">
+                                      Por: {consulta.nombreEstudiante} • {formatNeo4jDate(consulta.fechaCreacion)}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    {consulta.estado === 'pendiente' ? (
+                                      <Badge variant="secondary">
+                                        <Clock className="w-3 h-3 mr-1" />
+                                        Pendiente
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="default">
+                                        <CheckCircle className="w-3 h-3 mr-1" />
+                                        Respondida
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              </CardHeader>
+                              <CardContent>
+                                <p className="text-gray-700 mb-4">{consulta.mensaje}</p>
+                                
+                                {/* Respuesta existente */}
+                                {consulta.respuesta && (
+                                  <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <strong className="text-blue-700">Respuesta del docente:</strong>
+                                      <span className="text-sm text-blue-600">
+                                        {formatNeo4jDate(consulta.respuesta.fechaRespuesta)}
+                                      </span>
+                                    </div>
+                                    <p className="text-blue-800">{consulta.respuesta.mensaje}</p>
+                                  </div>
+                                )}
+
+                                {/* Formulario para responder (solo docentes) */}
+                                {user && curso && user.nombreUsuario === curso.nombreUsuarioDocente && !consulta.respuesta && (
+                                  <div className="border-t pt-4">
+                                    <label className="text-sm font-medium mb-2 block">Responder consulta:</label>
+                                    <div className="flex gap-2">
+                                      <Textarea
+                                        value={respuestaConsulta[consulta.id] || ''}
+                                        onChange={(e) => setRespuestaConsulta(prev => ({
+                                          ...prev,
+                                          [consulta.id]: e.target.value
+                                        }))}
+                                        placeholder="Escribe tu respuesta..."
+                                        rows={3}
+                                        className="flex-1"
+                                      />
+                                      <Button
+                                        onClick={() => responderConsulta(consulta.id)}
+                                        disabled={!respuestaConsulta[consulta.id]?.trim() || loadingRespuestaConsulta[consulta.id]}
+                                        size="sm"
+                                      >
+                                        {loadingRespuestaConsulta[consulta.id] ? (
+                                          'Enviando...'
+                                        ) : (
+                                          <>
+                                            <Send className="w-4 h-4 mr-1" />
+                                            Responder
+                                          </>
+                                        )}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+                              </CardContent>
+                            </Card>
+                          ))}
                         </div>
                       )}
                     </ScrollArea>

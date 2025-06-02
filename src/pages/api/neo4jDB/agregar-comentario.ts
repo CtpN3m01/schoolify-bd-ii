@@ -16,35 +16,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const driver = connectNeo4j();
   const session = driver.session();
-
   try {
-    // Verificar que el usuario está matriculado en el curso o es el docente
-    const verificarPermisos = await session.run(`
+    console.log('=== DEBUGGING AGREGAR COMENTARIO API ===');
+    console.log('Datos recibidos:', { seccionId, cursoId, usuarioId, texto });    // Verificar que el usuario existe y matricularlo automáticamente si no está matriculado
+    const verificarYMatricular = await session.run(`
       MATCH (u:Usuario {_id: $usuarioId})
       MATCH (c:Curso {id: $cursoId})
+      
+      // Verificar si ya está matriculado o es docente
       OPTIONAL MATCH (u)-[:MATRICULADO_EN]->(c)
       OPTIONAL MATCH (u)-[:ES_DOCENTE_DE]->(c)
-      RETURN u, c,
-             CASE 
-               WHEN (u)-[:MATRICULADO_EN]->(c) THEN true
-               WHEN (u)-[:ES_DOCENTE_DE]->(c) THEN true
-               ELSE false
-             END as tienePermiso
+      
+      // Si no está matriculado y no es docente, matricularlo automáticamente
+      FOREACH (_ IN CASE 
+        WHEN NOT (u)-[:MATRICULADO_EN]->(c) AND NOT (u)-[:ES_DOCENTE_DE]->(c) 
+        THEN [1] 
+        ELSE [] 
+      END |
+        CREATE (u)-[:MATRICULADO_EN {fechaMatricula: datetime()}]->(c)
+      )
+      
+      RETURN u, c, true as tienePermiso
     `, {
       usuarioId,
       cursoId
     });
 
-    if (verificarPermisos.records.length === 0) {
+    console.log('Registros encontrados en verificación:', verificarYMatricular.records.length);
+    
+    if (verificarYMatricular.records.length === 0) {
+      console.log('ERROR: Usuario o curso no encontrado');
       return res.status(404).json({ error: 'Usuario o curso no encontrado' });
     }
 
-    const tienePermiso = verificarPermisos.records[0].get('tienePermiso');
-    if (!tienePermiso) {
-      return res.status(403).json({ 
-        error: 'No tienes permisos para comentar en este curso' 
-      });
-    }
+    const record = verificarYMatricular.records[0];
+    const usuario = record.get('u');
+    const curso = record.get('c');
+    
+    console.log('Usuario encontrado:', usuario ? usuario.properties : 'No encontrado');
+    console.log('Curso encontrado:', curso ? curso.properties : 'No encontrado');
+    console.log('Usuario matriculado automáticamente para comentarios');
 
     // Crear o encontrar la sección de comentarios y agregar el comentario
     const resultado = await session.run(`

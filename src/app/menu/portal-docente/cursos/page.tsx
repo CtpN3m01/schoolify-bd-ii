@@ -788,19 +788,8 @@ export default function Cursos() {
                     value={editForm.fechaInicio}
                     onChange={e => setEditForm(f => ({ ...f, fechaInicio: e.target.value }))}
                     required
-                  />
-                </div>
+                />                </div>
                 <div className="flex flex-col">
-                  <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="edit-fechaFin">Fecha de fin</label>
-                  <Input
-                    id="edit-fechaFin"
-                    type="date"
-                    className="w-36"
-                    value={editForm.fechaFin}
-                    onChange={e => setEditForm(f => ({ ...f, fechaFin: e.target.value }))}
-                    required
-                  />
-                </div>                <div className="flex flex-col">
                   <label className="block text-sm font-medium text-muted-foreground mb-1" htmlFor="edit-fechaFin">Fecha de fin</label>
                   <Input
                     id="edit-fechaFin"
