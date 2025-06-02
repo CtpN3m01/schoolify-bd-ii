@@ -42,22 +42,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ORDER BY m.epochMillis ASC`,
       { fromId, toId }
     );
-    
-    const mensajes = result.records.map(r => ({
+      const mensajes = result.records.map(r => ({
       ...r.get('m').properties,
       from: r.get('from'),
       to: r.get('to')
     }));
     
-    console.log(`Historial encontrado: ${mensajes.length} mensajes entre ${fromId} y ${toId}`);
+    // Eliminar duplicados potenciales basados en ID único
+    const mensajesUnicos = mensajes.filter((mensaje, index, array) => {
+      return array.findIndex(m => m._id === mensaje._id) === index;
+    });
     
-    res.status(200).json({ 
+    console.log(`Historial encontrado: ${mensajes.length} mensajes, ${mensajesUnicos.length} únicos entre ${fromId} y ${toId}`);
+      res.status(200).json({ 
       success: true, 
-      mensajes,
+      mensajes: mensajesUnicos,
       debug: {
         fromExists,
         toExists,
-        totalMensajes: mensajes.length
+        totalMensajes: mensajes.length,
+        mensajesUnicos: mensajesUnicos.length
       }
     });
   } catch (error) {

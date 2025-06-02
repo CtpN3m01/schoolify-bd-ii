@@ -18,14 +18,15 @@ import {
   PaginationNext,
 } from "@/components/ui/pagination";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogCancel, AlertDialogAction, AlertDialogDescription } from "@/components/ui/alert-dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 
 interface Curso {
   _id: string;
+  id?: string; // Para compatibilidad con Neo4j
   nombreCurso: string;
   descripcion: string;
   fechaInicio: string;
@@ -36,7 +37,7 @@ interface Curso {
 }
 
 export default function Cursos() {
-  const [user, setUser] = useState<{ nombreUsuario: string } | null>(null);
+  const [user, setUser] = useState<{ nombreUsuario: string; _id?: string } | null>(null);
   const [cursos, setCursos] = useState<Curso[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -268,7 +269,6 @@ export default function Cursos() {
     const data = await res.json();
     return data.url;
   };
-
   const handleAgregarContenido = async (modIndex: number, subIndex?: number) => {
     if (!selectedCurso) return;
     const key = getInputKey(modIndex, subIndex);
@@ -277,7 +277,14 @@ export default function Cursos() {
       valor: (inputsContenido[key]?.valor || ''),
       titulo: (inputsContenido[key]?.titulo || '')
     };
-    if (!input.valor.trim()) return;
+    
+    // Para comentarios, no necesitamos valor, solo título
+    if (input.tipo === 'comentarios') {
+      if (!input.titulo.trim()) return;
+      input.valor = `seccion_comentarios_${Date.now()}`; // ID único para la sección de comentarios
+    } else {
+      if (!input.valor.trim()) return;
+    }
     // Obtener copia de los módulos actuales
     const mods = [...(modulos[selectedCurso._id] || [])];
     if (subIndex !== undefined) {
@@ -291,14 +298,19 @@ export default function Cursos() {
         ...mods[modIndex],
         contenidos: [...(mods[modIndex].contenidos || []), { ...input }],
       };
-    }
-    // Persistir en MongoDB usando el array actualizado
+    }    // Persistir en MongoDB usando el array actualizado
     try {
       await fetch('/api/mongoDB/cursos/actualizar_modulos', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cursoId: selectedCurso._id, modulos: limpiarModulosParaMongo(mods) })
       });
+
+      // Si es una sección de comentarios, crear también en Neo4j
+      if (input.tipo === 'comentarios') {
+        await crearSeccionComentarios(input.titulo, input.valor);
+      }
+
       // Recargar módulos desde la base para evitar duplicados
       const res = await fetch('/api/mongoDB/cursos/get_cursos');
       const data = await res.json();
@@ -307,7 +319,9 @@ export default function Cursos() {
         ...prev,
         [selectedCurso._id]: cursoDB?.contenido || []
       }));
-    } catch (e) {}
+    } catch (e) {
+      console.error('Error al agregar contenido:', e);
+    }
     setInputsContenido((prev) => ({ ...prev, [key]: { tipo: 'texto', valor: '', titulo: '' } }));  };
 
   // Utilidad para limpiar _id y campos temporales de módulos, subsecciones y contenidos
@@ -420,6 +434,87 @@ export default function Cursos() {
 
   // Estado para control de diálogos de confirmación
   const [confirmDialog, setConfirmDialog] = useState<{ type: null | 'modulo' | 'subseccion' | 'contenido', modIndex?: number, subIndex?: number, contIndex?: number }>({ type: null });
+  // Estados para comentarios
+  const [comentarios, setComentarios] = useState<{ [seccionId: string]: any[] }>({});
+  const [loadingComentarios, setLoadingComentarios] = useState<{ [seccionId: string]: boolean }>({});
+  const [nuevoComentario, setNuevoComentario] = useState<{ [seccionId: string]: string }>({});
+
+  // Función para cargar comentarios de una sección
+  const cargarComentarios = async (seccionId: string) => {
+    if (!selectedCurso) return;
+    
+    setLoadingComentarios(prev => ({ ...prev, [seccionId]: true }));
+    try {
+      const res = await fetch(`/api/neo4jDB/comentarios-seccion?seccionId=${seccionId}&cursoId=${selectedCurso.id || selectedCurso._id}`);
+      const data = await res.json();
+      
+      if (res.ok) {
+        setComentarios(prev => ({ ...prev, [seccionId]: data.comentarios || [] }));
+      } else {
+        console.error('Error al cargar comentarios:', data.error);
+        setComentarios(prev => ({ ...prev, [seccionId]: [] }));
+      }
+    } catch (e) {
+      console.error('Error al cargar comentarios:', e);
+      setComentarios(prev => ({ ...prev, [seccionId]: [] }));
+    } finally {
+      setLoadingComentarios(prev => ({ ...prev, [seccionId]: false }));
+    }
+  };
+
+  // Función para agregar un comentario
+  const agregarComentario = async (seccionId: string) => {
+    const texto = nuevoComentario[seccionId]?.trim();
+    if (!texto || !user || !selectedCurso) return;
+
+    try {
+      const res = await fetch('/api/neo4jDB/agregar-comentario', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },        body: JSON.stringify({
+          seccionId,
+          cursoId: selectedCurso.id || selectedCurso._id,
+          usuarioId: user._id || user.nombreUsuario, // Usar nombreUsuario como fallback
+          texto
+        })
+      });
+
+      if (res.ok) {
+        // Recargar comentarios
+        await cargarComentarios(seccionId);
+        // Limpiar input
+        setNuevoComentario(prev => ({ ...prev, [seccionId]: '' }));
+      } else {
+        const data = await res.json();
+        console.error('Error al agregar comentario:', data.error);
+      }
+    } catch (e) {
+      console.error('Error al agregar comentario:', e);
+    }
+  };  // Función para crear una nueva sección de comentarios (solo docentes)
+  const crearSeccionComentarios = async (titulo: string, seccionId: string) => {
+    if (!user || !selectedCurso) return;
+
+    try {
+      const res = await fetch('/api/neo4jDB/gestionar-secciones-comentarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },        body: JSON.stringify({
+          seccionId,
+          cursoId: selectedCurso.id || selectedCurso._id,
+          titulo,
+          docenteId: user._id || user.nombreUsuario // Usar nombreUsuario como fallback
+        })
+      });
+
+      if (res.ok) {
+        console.log('Sección de comentarios creada exitosamente');
+      } else {
+        const data = await res.json();
+        console.error('Error al crear sección de comentarios:', data.error);
+      }
+    } catch (e) {
+      console.error('Error al crear sección de comentarios:', e);
+    }
+  };
 
   // Cambia los handlers para abrir el dialog en vez de eliminar directamente
   const pedirConfirmarEliminarModulo = (modIndex: number) => setConfirmDialog({ type: 'modulo', modIndex });
@@ -799,13 +894,18 @@ export default function Cursos() {
                           </div>
                         </CollapsibleTrigger>
                         <CollapsibleContent className="p-4 space-y-2 bg-white">
-                          {mod.descripcion && <div className="mb-2 text-sm text-gray-700">{mod.descripcion}</div>}
-                          {/* Contenidos de la sección principal primero */}
+                          {mod.descripcion && <div className="mb-2 text-sm text-gray-700">{mod.descripcion}</div>}                          {/* Contenidos de la sección principal primero */}
                           <ul className="space-y-1">
                             {mod.contenidos && mod.contenidos.map((cont: any, j: number) => (
                               <li key={j} className="mb-4">
                                 <div className="border rounded-lg p-3 bg-gray-50 flex flex-col items-start gap-2">
-                                  <span className="font-semibold capitalize mb-1">{cont.tipo === 'texto' ? 'Texto' : cont.tipo === 'documento' ? 'Documento' : cont.tipo === 'video' ? 'Video' : 'Imagen'}</span>
+                                  <span className="font-semibold capitalize mb-1">
+                                    {cont.tipo === 'texto' ? 'Texto' : 
+                                     cont.tipo === 'documento' ? 'Documento' : 
+                                     cont.tipo === 'video' ? 'Video' : 
+                                     cont.tipo === 'imagen' ? 'Imagen' :
+                                     cont.tipo === 'comentarios' ? 'Comentarios' : 'Desconocido'}
+                                  </span>
                                   {cont.titulo && <span className="text-sm font-medium text-blue-700">{cont.titulo}</span>}
                                   {cont.tipo === 'texto' && (
                                     <span className="text-gray-800 whitespace-pre-line">{cont.valor}</span>
@@ -823,12 +923,80 @@ export default function Cursos() {
                                       </div>
                                       <a href={cont.valor} download className="text-blue-600 underline text-xs mt-1" target="_blank" rel="noopener noreferrer">Descargar imagen</a>
                                     </>
-                                  )}
-                                  {cont.tipo === 'documento' && (
+                                  )}                                  {cont.tipo === 'documento' && (
                                     <>
                                       <a href={cont.valor} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline break-all block max-w-full border rounded px-2 py-1 bg-white hover:bg-gray-100 transition">Ver documento</a>
                                       <a href={cont.valor} download className="text-blue-600 underline text-xs mt-1" target="_blank" rel="noopener noreferrer">Descargar documento</a>
                                     </>
+                                  )}                                  {cont.tipo === 'comentarios' && (
+                                    <div className="w-full border rounded-lg bg-white">
+                                      <div className="p-3 border-b bg-gray-50">
+                                        <h4 className="font-medium text-gray-800">💬 {cont.titulo}</h4>
+                                        <p className="text-sm text-gray-600">Los estudiantes pueden comentar aquí</p>
+                                      </div>
+                                      
+                                      {/* Área de comentarios con scroll */}
+                                      <ScrollArea className="h-[300px] p-3">
+                                        {loadingComentarios[cont.valor] ? (
+                                          <div className="flex justify-center items-center h-20">
+                                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                                          </div>
+                                        ) : comentarios[cont.valor]?.length > 0 ? (
+                                          <div className="space-y-3">
+                                            {comentarios[cont.valor].map((comentario: any, idx: number) => (
+                                              <div key={idx} className="border-l-4 border-blue-200 pl-3 py-2 bg-gray-50 rounded">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                  <span className="font-medium text-sm text-blue-700">{comentario.autor}</span>
+                                                  <span className="text-xs text-gray-500">
+                                                    {new Date(comentario.fecha).toLocaleDateString()} - {new Date(comentario.fecha).toLocaleTimeString()}
+                                                  </span>
+                                                </div>
+                                                <p className="text-sm text-gray-700">{comentario.texto}</p>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <div className="text-center text-gray-500 py-8">
+                                            <p>No hay comentarios aún</p>
+                                            <Button 
+                                              variant="outline" 
+                                              size="sm" 
+                                              className="mt-2"
+                                              onClick={() => cargarComentarios(cont.valor)}
+                                            >
+                                              Cargar comentarios
+                                            </Button>
+                                          </div>
+                                        )}
+                                      </ScrollArea>
+                                      
+                                      {/* Formulario para agregar comentario */}
+                                      <div className="p-3 border-t bg-gray-50">
+                                        <div className="flex gap-2">
+                                          <Input
+                                            placeholder="Escribe un comentario..."
+                                            value={nuevoComentario[cont.valor] || ''}
+                                            onChange={(e) => setNuevoComentario(prev => ({ 
+                                              ...prev, 
+                                              [cont.valor]: e.target.value 
+                                            }))}
+                                            onKeyPress={(e) => {
+                                              if (e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                agregarComentario(cont.valor);
+                                              }
+                                            }}
+                                          />
+                                          <Button 
+                                            size="sm" 
+                                            onClick={() => agregarComentario(cont.valor)}
+                                            disabled={!nuevoComentario[cont.valor]?.trim()}
+                                          >
+                                            Enviar
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </div>
                                   )}
                                   {/* Botón eliminar contenido */}
                                   <Button variant="ghost" size="icon" className="ml-auto text-red-500 hover:bg-red-100" onClick={() => pedirConfirmarEliminarContenido(i, j)} title="Eliminar contenido">
@@ -839,14 +1007,14 @@ export default function Cursos() {
                             ))}
                           </ul>
                           {/* Formulario para agregar contenido principal SIEMPRE visible */}
-                          <div className="flex gap-2 mt-2">
-                            <select value={(inputsContenido[getInputKey(i)]?.tipo || 'texto')} onChange={e => handleInputContenidoChange(i, undefined, 'tipo', e.target.value)} className="border rounded px-2">
+                          <div className="flex gap-2 mt-2">                            <select value={(inputsContenido[getInputKey(i)]?.tipo || 'texto')} onChange={e => handleInputContenidoChange(i, undefined, 'tipo', e.target.value)} className="border rounded px-2">
                               <option value="texto">Texto</option>
                               <option value="documento">Documento</option>
                               <option value="video">Video</option>
                               <option value="imagen">Imagen</option>
+                              <option value="comentarios">Comentarios</option>
                             </select>
-                            {(inputsContenido[getInputKey(i)]?.tipo === 'imagen' || inputsContenido[getInputKey(i)]?.tipo === 'video' || inputsContenido[getInputKey(i)]?.tipo === 'documento') && (
+                            {(inputsContenido[getInputKey(i)]?.tipo === 'imagen' || inputsContenido[getInputKey(i)]?.tipo === 'video' || inputsContenido[getInputKey(i)]?.tipo === 'documento' || inputsContenido[getInputKey(i)]?.tipo === 'comentarios') && (
                               <Input
                                 value={inputsContenido[getInputKey(i)]?.titulo || ''}
                                 onChange={e => handleInputContenidoChange(i, undefined, 'titulo', e.target.value)}
@@ -917,7 +1085,13 @@ export default function Cursos() {
                                         {sub.contenidos && sub.contenidos.map((cont: any, j: number) => (
                                           <li key={j} className="mb-1">
                                             <div className="border rounded-lg p-3 bg-gray-50 flex flex-col items-start gap-2">
-                                              <span className="font-semibold capitalize mb-1">{cont.tipo === 'texto' ? 'Texto' : cont.tipo === 'documento' ? 'Documento' : cont.tipo === 'video' ? 'Video' : 'Imagen'}</span>
+                                              <span className="font-semibold capitalize mb-1">
+                                                {cont.tipo === 'texto' ? 'Texto' : 
+                                                 cont.tipo === 'documento' ? 'Documento' : 
+                                                 cont.tipo === 'video' ? 'Video' : 
+                                                 cont.tipo === 'imagen' ? 'Imagen' :
+                                                 cont.tipo === 'comentarios' ? 'Comentarios' : 'Desconocido'}
+                                              </span>
                                               {cont.titulo && <span className="text-sm font-medium text-blue-700">{cont.titulo}</span>}
                                               {cont.tipo === 'texto' && (
                                                 <span className="text-gray-800 whitespace-pre-line">{cont.valor}</span>
@@ -935,12 +1109,81 @@ export default function Cursos() {
                                                   </div>
                                                   <a href={cont.valor} download className="text-blue-600 underline text-xs mt-1" target="_blank" rel="noopener noreferrer">Descargar imagen</a>
                                                 </>
-                                              )}
-                                              {cont.tipo === 'documento' && (
+                                              )}                                              {cont.tipo === 'documento' && (
                                                 <>
                                                   <a href={cont.valor} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline break-all block max-w-full border rounded px-2 py-1 bg-white hover:bg-gray-100 transition">Ver documento</a>
                                                   <a href={cont.valor} download className="text-blue-600 underline text-xs mt-1" target="_blank" rel="noopener noreferrer">Descargar documento</a>
                                                 </>
+                                              )}
+                                              {cont.tipo === 'comentarios' && (
+                                                <div className="w-full border rounded-lg bg-white">
+                                                  <div className="p-3 border-b bg-gray-50">
+                                                    <h4 className="font-medium text-gray-800">💬 Sección de Comentarios</h4>
+                                                    <p className="text-sm text-gray-600">Los estudiantes pueden comentar aquí</p>
+                                                  </div>
+                                                  
+                                                  {/* Área de comentarios con scroll */}
+                                                  <ScrollArea className="h-[300px] p-3">
+                                                    {loadingComentarios[cont.valor] ? (
+                                                      <div className="flex justify-center items-center h-20">
+                                                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                                                      </div>
+                                                    ) : comentarios[cont.valor]?.length > 0 ? (
+                                                      <div className="space-y-3">
+                                                        {comentarios[cont.valor].map((comentario: any, idx: number) => (
+                                                          <div key={idx} className="border-l-4 border-blue-200 pl-3 py-2 bg-gray-50 rounded">
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                              <span className="font-medium text-sm text-blue-700">{comentario.autor}</span>
+                                                              <span className="text-xs text-gray-500">
+                                                                {new Date(comentario.fecha).toLocaleDateString()} - {new Date(comentario.fecha).toLocaleTimeString()}
+                                                              </span>
+                                                            </div>
+                                                            <p className="text-sm text-gray-700">{comentario.texto}</p>
+                                                          </div>
+                                                        ))}
+                                                      </div>
+                                                    ) : (
+                                                      <div className="text-center text-gray-500 py-8">
+                                                        <p>No hay comentarios aún</p>
+                                                        <Button 
+                                                          variant="outline" 
+                                                          size="sm" 
+                                                          className="mt-2"
+                                                          onClick={() => cargarComentarios(cont.valor)}
+                                                        >
+                                                          Cargar comentarios
+                                                        </Button>
+                                                      </div>
+                                                    )}
+                                                  </ScrollArea>
+                                                  
+                                                  {/* Formulario para agregar comentario */}
+                                                  <div className="p-3 border-t bg-gray-50">
+                                                    <div className="flex gap-2">
+                                                      <Input
+                                                        placeholder="Escribe un comentario..."
+                                                        value={nuevoComentario[cont.valor] || ''}
+                                                        onChange={(e) => setNuevoComentario(prev => ({ 
+                                                          ...prev, 
+                                                          [cont.valor]: e.target.value 
+                                                        }))}
+                                                        onKeyPress={(e) => {
+                                                          if (e.key === 'Enter' && !e.shiftKey) {
+                                                            e.preventDefault();
+                                                            agregarComentario(cont.valor);
+                                                          }
+                                                        }}
+                                                      />
+                                                      <Button 
+                                                        size="sm" 
+                                                        onClick={() => agregarComentario(cont.valor)}
+                                                        disabled={!nuevoComentario[cont.valor]?.trim()}
+                                                      >
+                                                        Enviar
+                                                      </Button>
+                                                    </div>
+                                                  </div>
+                                                </div>
                                               )}
                                               {/* Botón eliminar contenido */}
                                               <Button variant="ghost" size="icon" className="ml-auto text-red-500 hover:bg-red-100" onClick={() => pedirConfirmarEliminarContenido(i, j, k)} title="Eliminar contenido">
@@ -951,14 +1194,13 @@ export default function Cursos() {
                                         ))}
                                       </ul>
                                       {/* Formulario para agregar contenido a la subsección */}
-                                      <div className="flex gap-2 mt-2">
-                                        <select value={(inputsContenido[getInputKey(i, k)]?.tipo || 'texto')} onChange={e => handleInputContenidoChange(i, k, 'tipo', e.target.value)} className="border rounded px-2">
+                                      <div className="flex gap-2 mt-2">                                        <select value={(inputsContenido[getInputKey(i, k)]?.tipo || 'texto')} onChange={e => handleInputContenidoChange(i, k, 'tipo', e.target.value)} className="border rounded px-2">
                                           <option value="texto">Texto</option>
                                           <option value="documento">Documento</option>
                                           <option value="video">Video</option>
                                           <option value="imagen">Imagen</option>
-                                        </select>
-                                        {(inputsContenido[getInputKey(i, k)]?.tipo === 'imagen' || inputsContenido[getInputKey(i, k)]?.tipo === 'video' || inputsContenido[getInputKey(i, k)]?.tipo === 'documento') && (
+                                          <option value="comentarios">Comentarios</option>
+                                        </select>                                        {(inputsContenido[getInputKey(i, k)]?.tipo === 'imagen' || inputsContenido[getInputKey(i, k)]?.tipo === 'video' || inputsContenido[getInputKey(i, k)]?.tipo === 'documento' || inputsContenido[getInputKey(i, k)]?.tipo === 'comentarios') && (
                                           <Input
                                             value={inputsContenido[getInputKey(i, k)]?.titulo || ''}
                                             onChange={e => handleInputContenidoChange(i, k, 'titulo', e.target.value)}

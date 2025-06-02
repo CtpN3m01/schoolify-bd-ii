@@ -7,10 +7,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Método no permitido' });
   }
-    const { userId, cursoId, limiteUsuarios } = req.body;
+  const { userId, usuarioId, cursoId, limiteUsuarios = 50 } = req.body;
   
-  if (!userId || !cursoId || typeof limiteUsuarios !== 'number') {
-    return res.status(400).json({ message: 'Faltan parámetros requeridos (userId, cursoId, limiteUsuarios)' });
+  // Aceptar tanto userId como usuarioId para compatibilidad
+  const finalUserId = userId || usuarioId;
+  
+  if (!finalUserId || !cursoId) {
+    return res.status(400).json({ message: 'Faltan parámetros requeridos (userId/usuarioId, cursoId)' });
   }
 
   let driver, session;
@@ -21,9 +24,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     await connectMongoDB();
     const database = client.db('ProyectoIBasesII');
     const cursosCollection = database.collection('Cursos');
-    const usuariosCollection = database.collection('Usuarios');
-      const curso = await cursosCollection.findOne({ _id: new ObjectId(cursoId) });
-    const usuario = await usuariosCollection.findOne({ _id: new ObjectId(userId) });
+    const usuariosCollection = database.collection('Usuarios');    const curso = await cursosCollection.findOne({ _id: new ObjectId(cursoId) });
+    const usuario = await usuariosCollection.findOne({ _id: new ObjectId(finalUserId) });
     
     if (!curso) {
       return res.status(404).json({ message: 'Curso no encontrado' });
@@ -43,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
            u.foto = $foto,
            u.rol = $rol`,
       {
-        userId: userId.toString(),
+        userId: finalUserId.toString(),
         nombreUsuario: usuario.nombreUsuario || '',
         nombre: usuario.nombre || '',
         apellido1: usuario.apellido1 || '',
@@ -85,20 +87,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     
     if (count >= limiteUsuarios) {
       return res.status(409).json({ message: 'El curso ya alcanzó el límite de usuarios matriculados.' });    }
-    
-    // Verificar si ya está matriculado
+      // Verificar si ya está matriculado
     const existsResult = await session.run(
       'MATCH (u:Usuario {_id: $userId})-[:MATRICULADO_EN]->(c:Curso {_id: $cursoId}) RETURN u',
-      { userId: userId.toString(), cursoId: cursoId.toString() }
+      { userId: finalUserId.toString(), cursoId: cursoId.toString() }
     );
       if (existsResult.records.length > 0) {
       return res.status(200).json({ message: 'El usuario ya está matriculado en el curso.' });
     }
-    
-    // Crear relación de matrícula
+      // Crear relación de matrícula
     const matriculaResult = await session.run(
       'MATCH (u:Usuario {_id: $userId}), (c:Curso {_id: $cursoId}) CREATE (u)-[:MATRICULADO_EN]->(c) RETURN u, c',
-      { userId: userId.toString(), cursoId: cursoId.toString() }    );
+      { userId: finalUserId.toString(), cursoId: cursoId.toString() }    );
       if (matriculaResult.records.length === 0) {
       return res.status(500).json({ message: 'No se pudo crear la relación. Los nodos no existen.' });
     }

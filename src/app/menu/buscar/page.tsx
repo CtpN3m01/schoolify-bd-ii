@@ -1,4 +1,4 @@
-import CursosPublicados from "./CursosPublicados";
+import CursosPublicados from "./CursosPublicados_new";
 
 export default function Buscar() {
   return (

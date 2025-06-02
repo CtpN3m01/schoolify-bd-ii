@@ -100,6 +100,13 @@ export default function Evaluaciones() {
   const handleEliminarPregunta = (idx: number) => {
     setPreguntas(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev);
   };
+  // Función para crear fecha sin problemas de zona horaria
+  const createDateFromString = (dateString: string) => {
+    if (!dateString) return null;
+    // Agregar la hora local para evitar problemas de UTC
+    const [year, month, day] = dateString.split('-');
+    return new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0).toISOString();
+  };
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
@@ -110,8 +117,8 @@ export default function Evaluaciones() {
       const body = {
         idCurso: cursoSeleccionado,
         nombre,
-        fechaInicio: fechaInicio ? new Date(fechaInicio).toISOString() : null,
-        fechaFin: fechaFin ? new Date(fechaFin).toISOString() : null,
+        fechaInicio: createDateFromString(fechaInicio),
+        fechaFin: createDateFromString(fechaFin),
         preguntas
       };
       const res = await fetch("/api/cassandraDB/evaluaciones?crear=1", {
@@ -131,13 +138,22 @@ export default function Evaluaciones() {
       setSaving(false);
     }
   };
+  // Función para convertir ISO date a formato de input date
+  const formatDateForInput = (isoString: string) => {
+    if (!isoString) return "";
+    const date = new Date(isoString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
   // Editar evaluación: abrir dialog y cargar datos
   const handleEdit = (ev: any) => {
     setEditEval(ev);
     setEditNombre(ev.nombre);
-    setEditFechaInicio(ev.fechainicio ? new Date(ev.fechainicio).toISOString().slice(0,10) : "");
-    setEditFechaFin(ev.fechafin ? new Date(ev.fechafin).toISOString().slice(0,10) : "");
+    setEditFechaInicio(formatDateForInput(ev.fechainicio));
+    setEditFechaFin(formatDateForInput(ev.fechafin));
     setEditPreguntas(ev.preguntas || []);
     setEditDialogOpen(true);
   };
@@ -147,13 +163,12 @@ export default function Evaluaciones() {
     if (!editEval) return;
     setSaving(true);
     setError("");
-    try {
-      const body = {
+    try {      const body = {
         id: editEval.id,
         idCurso: cursoSeleccionado,
         nombre: editNombre,
-        fechaInicio: editFechaInicio ? new Date(editFechaInicio).toISOString() : null,
-        fechaFin: editFechaFin ? new Date(editFechaFin).toISOString() : null,
+        fechaInicio: createDateFromString(editFechaInicio),
+        fechaFin: createDateFromString(editFechaFin),
         preguntas: editPreguntas
       };
       const res = await fetch("/api/cassandraDB/evaluaciones?editar=1", {
@@ -318,10 +333,9 @@ export default function Evaluaciones() {
             {evaluaciones.length === 0 && <div className="text-gray-500">No hay evaluaciones para este curso.</div>}
             {evaluaciones.map(ev => (
               <div key={ev.id} className="border rounded-lg p-4 bg-gray-50">
-                <div className="flex justify-between items-center gap-2">
-                  <div>
+                <div className="flex justify-between items-center gap-2">                  <div>
                     <div className="font-semibold text-lg">{ev.nombre}</div>
-                    <div className="text-xs text-gray-500">{new Date(ev.fechainicio).toLocaleDateString()} - {new Date(ev.fechafin).toLocaleDateString()}</div>
+                    <div className="text-xs text-gray-500">{formatDateForInput(ev.fechainicio)} - {formatDateForInput(ev.fechafin)}</div>
                   </div>
                   <div className="flex gap-2">                    <Button size="sm" onClick={() => cargarResultados(ev)}>Ver resultados</Button>
                     <Button size="sm" variant="outline" onClick={() => handleEdit(ev)}>Editar</Button>

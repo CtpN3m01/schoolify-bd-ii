@@ -11,10 +11,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ message: 'Falta userId' });
   }
   const driver = connectNeo4j();
-  const session = driver.session();  try {
-    const result = await session.run(
+  const session = driver.session();  try {    const result = await session.run(
       `MATCH (u:Usuario {_id: $userId})-[:MATRICULADO_EN]->(c:Curso)
-       RETURN c._id AS _id, c.nombreCurso AS nombreCurso, c.descripcion AS descripcion, c.foto AS foto, c.fechaInicio AS fechaInicio, c.fechaFin AS fechaFin, c.estado AS estado, c.nombreUsuarioDocente AS nombreUsuarioDocente`,
+       RETURN coalesce(c._id, c.id) AS _id, c.nombreCurso AS nombreCurso, c.descripcion AS descripcion, c.foto AS foto, c.fechaInicio AS fechaInicio, c.fechaFin AS fechaFin, c.estado AS estado, c.nombreUsuarioDocente AS nombreUsuarioDocente`,
       { userId }
     );
     

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ interface Usuario {
   apellido1: string;
   apellido2: string;
   foto?: string;
+  ultimoMensaje?: Message;
+  unreadCount?: number;
 }
 
 interface Message {
@@ -47,18 +49,35 @@ export default function Chat() {
   useEffect(() => {
     console.log('Current user from context:', user);
     console.log('Current userId:', currentUserId);
-  }, [user, currentUserId]);
-
-  // Cargar usuarios reales
+  }, [user, currentUserId]);  // Cargar usuarios con conversaciones existentes
   useEffect(() => {
-    fetch('/api/test/get_usuarios')
+    if (!currentUserId) return;
+    
+    fetch(`/api/neo4jDB/usuarios-con-conversaciones?userId=${currentUserId}`)
       .then(res => res.json())
-      .then(data => setUsuarios(data.data || []));
-  }, []);
-
-  // Estado para contar mensajes no leídos por chat
-  const [unreadCounts, setUnreadCounts] = useState<{ [userId: string]: number }>({});
-  // Actualizar mensajes y contadores en tiempo real
+      .then(data => {
+        if (data.success && Array.isArray(data.usuarios)) {
+          console.log('Usuarios con conversaciones cargados:', data.usuarios);
+          
+          // Filtrar usuarios válidos
+          const usuariosValidos = data.usuarios.filter((u: any) => 
+            u && u._id && u.nombreUsuario && u.nombre
+          );
+            setUsuarios(usuariosValidos);
+          
+          console.log('Usuarios válidos cargados:', usuariosValidos.length);
+        } else {
+          console.warn('Respuesta inválida del servidor:', data);
+          setUsuarios([]);
+        }
+      })
+      .catch(error => {
+        console.error('Error cargando usuarios con conversaciones:', error);
+        setUsuarios([]);
+      });
+  }, [currentUserId]);
+  // Estado para marcar chats con mensajes nuevos
+  const [newMessages, setNewMessages] = useState<{ [userId: string]: boolean }>({});// Actualizar mensajes y contadores en tiempo real
   useEffect(() => {
     if (!socketRef.current) return;
     const socket = socketRef.current;
@@ -67,17 +86,40 @@ export default function Chat() {
     socket.on('receive-message', (msg: Message) => {
       console.log('Mensaje recibido por socket:', msg);
       
-      // Si el mensaje es para el chat abierto O es un mensaje que yo envié, agregarlo inmediatamente
-      if ((msg.from === activeChat && msg.to === currentUserId) || 
-          (msg.from === currentUserId && msg.to === activeChat)) {
-        setMessages(prev => [...prev, msg]);
+      // SOLO agregar el mensaje si es para el chat activo y NO es un mensaje que yo envié
+      // (los mensajes que yo envío ya se agregan inmediatamente al enviar)
+      if (msg.from === activeChat && msg.to === currentUserId) {
+        setMessages(prev => {
+          // Verificar duplicados usando múltiples criterios
+          const exists = prev.some(existingMsg => {
+            // Mismo ID
+            if (existingMsg._id && msg._id && existingMsg._id === msg._id) return true;
+            
+            // Mismo contenido, emisor, receptor y tiempo muy cercano (dentro de 2 segundos)
+            const timeDiff = Math.abs(
+              (existingMsg.epochMillis as number || 0) - (msg.epochMillis as number || 0)
+            );
+            
+            return existingMsg.from === msg.from && 
+                   existingMsg.to === msg.to && 
+                   existingMsg.contenido === msg.contenido &&
+                   timeDiff < 2000;
+          });
+          
+          if (exists) {
+            console.log('Mensaje duplicado detectado, no agregando');
+            return prev;
+          }
+          
+          console.log('Agregando nuevo mensaje recibido');
+          return [...prev, msg];
+        });
       }
-      
-      // Si el mensaje es para mí pero NO estoy en ese chat, aumentar contador
+        // Si el mensaje es para mí pero NO estoy en ese chat, marcar como nuevo mensaje
       if (msg.to === currentUserId && msg.from !== activeChat && msg.from !== currentUserId) {
-        setUnreadCounts(prevCounts => ({
-          ...prevCounts,
-          [msg.from]: (prevCounts[msg.from] || 0) + 1
+        setNewMessages(prev => ({
+          ...prev,
+          [msg.from]: true
         }));
       }
     });
@@ -85,79 +127,91 @@ export default function Chat() {
     return () => {
       socket.off('receive-message');
     };
-  }, [activeChat, currentUserId]);
-
-  // Reiniciar contador de mensajes no leídos al abrir un chat
+  }, [activeChat, currentUserId]);  // Limpiar marca de mensaje nuevo al abrir un chat
   useEffect(() => {
     if (!activeChat) return;
-    setUnreadCounts(prev => ({ ...prev, [activeChat]: 0 }));
+    setNewMessages(prev => ({ ...prev, [activeChat]: false }));
   }, [activeChat]);
-
-  // Ordenar usuarios por último mensaje recibido/enviado, pero SOLO sube si hay mensaje nuevo no leído
-  const usuariosConUltimoMensaje = usuarios.map(u => {
-    const mensajesConUsuario = messages.filter(m => m.from === u._id || m.to === u._id);
-    let ultimoMensaje: Message | null = null;
-    if (mensajesConUsuario.length > 0) {
-      ultimoMensaje = mensajesConUsuario.reduce((a, b) => {
-        const getTime = (m: Message) => {
-          if (m.epochMillis) {
-            return typeof m.epochMillis === 'object' && m.epochMillis !== null && 'low' in m.epochMillis
-              ? (m.epochMillis as any).low
-              : m.epochMillis;
-          }
-          if (m.fecha) {
-            if (typeof m.fecha === 'string' && !isNaN(Date.parse(m.fecha))) return new Date(m.fecha).getTime();
-            if (typeof m.fecha === 'object' && m.fecha !== null && 'low' in m.fecha) return (m.fecha as any).low;
-          }
-          return 0;
-        };
-        return getTime(a) > getTime(b) ? a : b;
-      });
-    }
-    return { ...u, ultimoMensaje };
-  });
-
-  // Ordenar: primero los que tienen mensajes no leídos, luego por último mensaje, pero si no hay mensajes no leídos, mantener el orden original
-  const usuariosOrdenados = usuariosConUltimoMensaje.slice().sort((a, b) => {
-    const unreadA = unreadCounts[a._id] || 0;
-    const unreadB = unreadCounts[b._id] || 0;
-    if (unreadA !== unreadB) return unreadB - unreadA;
-    // Si ambos tienen 0 mensajes no leídos, mantener el orden original
-    if (unreadA === 0 && unreadB === 0) return 0;
-    const getTime = (m: Message | null) => {
-      if (!m) return 0;
-      if (m.epochMillis) {
-        return typeof m.epochMillis === 'object' && m.epochMillis !== null && 'low' in m.epochMillis
-          ? (m.epochMillis as any).low
-          : m.epochMillis;
+  // Ordenar usuarios: primero los que tienen mensajes nuevos, 
+  // luego por último mensaje más reciente
+  const usuariosOrdenados = usuarios.slice().sort((a, b) => {
+    const hasNewA = newMessages[a._id] || false;
+    const hasNewB = newMessages[b._id] || false;
+    
+    // Priorizar usuarios con mensajes nuevos
+    if (hasNewA && !hasNewB) return -1;
+    if (hasNewB && !hasNewA) return 1;
+    
+    // Si ambos tienen o no tienen mensajes nuevos, ordenar por último mensaje
+    const getLastMessageTime = (usuario: Usuario) => {
+      if (!usuario.ultimoMensaje) return 0;
+      const msg = usuario.ultimoMensaje;
+      if (msg.epochMillis) {
+        return typeof msg.epochMillis === 'object' && msg.epochMillis !== null && 'low' in msg.epochMillis
+          ? (msg.epochMillis as any).low
+          : msg.epochMillis as number;
       }
-      if (m.fecha) {
-        if (typeof m.fecha === 'string' && !isNaN(Date.parse(m.fecha))) return new Date(m.fecha).getTime();
-        if (typeof m.fecha === 'object' && m.fecha !== null && 'low' in m.fecha) return (m.fecha as any).low;
+      if (msg.fecha) {
+        if (typeof msg.fecha === 'string' && !isNaN(Date.parse(msg.fecha))) 
+          return new Date(msg.fecha).getTime();
+        if (typeof msg.fecha === 'object' && msg.fecha !== null && 'low' in msg.fecha) 
+          return (msg.fecha as any).low;
       }
       return 0;
     };
-    return getTime(b.ultimoMensaje) - getTime(a.ultimoMensaje);
-  });
+    
+    return getLastMessageTime(b) - getLastMessageTime(a);
+  });// Función para eliminar duplicados del historial  // Función para eliminar duplicados del historial
+  const removeDuplicateMessages = (messages: Message[]): Message[] => {
+    const seen = new Set<string>();
+    return messages.filter(msg => {
+      // Crear una clave única basada en contenido, emisor, receptor y tiempo
+      const timePart = typeof msg.epochMillis === 'object' && msg.epochMillis !== null && 'low' in msg.epochMillis
+        ? (msg.epochMillis as any).low
+        : (msg.epochMillis || 0);
+      
+      const key = `${msg.from}-${msg.to}-${msg.contenido}-${Math.floor(Number(timePart) / 1000)}`; // Agrupamos por segundo
+      
+      if (seen.has(key)) {
+        console.log('Duplicado removido:', msg.contenido);
+        return false;
+      }
+      
+      seen.add(key);
+      return true;
+    });
+  };
 
   // Cargar historial de mensajes cuando cambia el chat activo
   useEffect(() => {
-    if (!activeChat) return;
+    if (!activeChat || !currentUserId) return;
+    
     fetch(`/api/neo4jDB/historial-mensajes?fromId=${currentUserId}&toId=${activeChat}`)
       .then(res => res.json())
       .then(data => {
-        // Ordenar mensajes por fecha ascendente
-        const mensajes = (data.mensajes || []).slice().sort((a: any, b: any) => {
-          // Soportar string ISO y objeto Neo4j {low}
-          const getTime = (fecha: any) => {
-            if (!fecha) return 0;
-            if (typeof fecha === 'string' && !isNaN(Date.parse(fecha))) return new Date(fecha).getTime();
-            if (typeof fecha === 'object' && fecha !== null && Object.prototype.hasOwnProperty.call(fecha, 'low')) return (fecha as any).low;
-            return 0;
-          };
-          return getTime(a.fecha) - getTime(b.fecha);
-        });
-        setMessages(mensajes);
+        if (data.success) {
+          // Ordenar mensajes por fecha ascendente
+          const mensajesOrdenados = (data.mensajes || []).slice().sort((a: any, b: any) => {
+            // Soportar string ISO y objeto Neo4j {low}
+            const getTime = (fecha: any) => {
+              if (!fecha) return 0;
+              if (typeof fecha === 'string' && !isNaN(Date.parse(fecha))) return new Date(fecha).getTime();
+              if (typeof fecha === 'object' && fecha !== null && Object.prototype.hasOwnProperty.call(fecha, 'low')) return (fecha as any).low;
+              return 0;
+            };
+            return getTime(a.fecha) - getTime(b.fecha);
+          });
+          
+          // Eliminar duplicados
+          const mensajesSinDuplicados = removeDuplicateMessages(mensajesOrdenados);
+          console.log(`Historial cargado: ${data.mensajes?.length || 0} mensajes, ${mensajesSinDuplicados.length} únicos`);
+          
+          setMessages(mensajesSinDuplicados);
+        }
+      })
+      .catch(error => {
+        console.error('Error cargando historial:', error);
+        setMessages([]);
       });
   }, [activeChat, currentUserId]);
 
@@ -182,7 +236,7 @@ export default function Chat() {
     };
   }, [currentUserId]);  // Enviar mensaje (ahora también por socket.io)
   const handleSendMessage = async () => {
-    if (!inputMessage.trim() || !activeChat) return;
+    if (!inputMessage.trim() || !activeChat || !currentUserId) return;
     
     console.log('Enviando mensaje:', { fromId: currentUserId, toId: activeChat, contenido: inputMessage });
     
@@ -197,7 +251,7 @@ export default function Chat() {
       console.log('Respuesta del servidor:', data);
       
       if (data.success) {
-        // Crear el mensaje con la estructura correcta, manejando casos donde data.mensaje podría ser undefined
+        // Crear el mensaje con la estructura correcta
         const nuevoMensaje: Message = {
           _id: data.mensaje?._id || `temp-${Date.now()}`,
           from: currentUserId,
@@ -207,13 +261,11 @@ export default function Chat() {
           epochMillis: data.mensaje?.epochMillis || Date.now()
         };
         
-        //console.log('Mensaje a agregar:', nuevoMensaje);
-        
         // Agregar inmediatamente a los mensajes locales
         setMessages(prev => [...prev, nuevoMensaje]);
         setInputMessage('');
         
-        // Emitir por socket.io para que otros usuarios lo reciban
+        // Emitir por socket.io para que el destinatario lo reciba
         socketRef.current?.emit('send-message', nuevoMensaje);
       } else {
         console.error('Error al enviar mensaje:', data.error || 'Error desconocido');
@@ -249,34 +301,60 @@ export default function Chat() {
             </svg>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto">
-          <div className="divide-y divide-gray-100">
+        <div className="flex-1 overflow-y-auto">          <div className="divide-y divide-gray-100">
             {filteredUsuarios.length > 0 ? (
-              filteredUsuarios.map(u => (
-                <div
-                  key={u._id}
-                  className={`p-3 flex items-center cursor-pointer hover:bg-gray-50 ${activeChat === u._id ? 'bg-blue-50' : ''}`}
-
-                  onClick={() => setActiveChat(u._id)}
-                >
-                  <Avatar>
-                    <AvatarImage src={u.foto || undefined} alt={u.nombreUsuario} />
-                    <AvatarFallback>{u.nombreUsuario[0]}</AvatarFallback>
-                  </Avatar>
-                  <div className="ml-3 flex-1">
-                    <div className="flex justify-between items-center">
-                      <p className="font-medium text-gray-900">{u.nombre} {u.apellido1}</p>
-                      {/* Mostrar contador solo si hay mensajes no leídos y NO es el chat activo */}
-                      {unreadCounts[u._id] > 0 && activeChat !== u._id && (
-                        <span className="ml-2 bg-blue-500 text-white rounded-full px-2 py-0.5 text-xs font-bold">{unreadCounts[u._id]}</span>
-                      )}
+              filteredUsuarios.map(u => {
+                // Validar que el usuario tenga los campos necesarios
+                if (!u._id || !u.nombreUsuario || !u.nombre) {
+                  console.warn('Usuario con datos incompletos:', u);
+                  return null;
+                }
+                
+                return (
+                  <div
+                    key={`user-${u._id}`}
+                    className={`p-3 flex items-center cursor-pointer hover:bg-gray-50 ${activeChat === u._id ? 'bg-blue-50' : ''}`}
+                    onClick={() => setActiveChat(u._id)}
+                  >
+                    <Avatar>
+                      <AvatarImage src={u.foto || undefined} alt={u.nombreUsuario} />
+                      <AvatarFallback>{u.nombreUsuario[0]?.toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div className="ml-3 flex-1">                      <div className="flex justify-between items-center">
+                        <p className="font-medium text-gray-900">{u.nombre} {u.apellido1}</p>
+                        {/* Mostrar indicador solo si hay mensajes nuevos y NO es el chat activo */}
+                        {newMessages[u._id] && activeChat !== u._id && (
+                          <span className="ml-2 bg-green-500 text-white rounded-full px-2 py-0.5 text-xs font-bold">Nuevo</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-500 truncate">
+                        {searchQuery ? 
+                          u.nombreUsuario : 
+                          (u.ultimoMensaje && u.ultimoMensaje.contenido ? 
+                            (u.ultimoMensaje.contenido.length > 30 ? 
+                              u.ultimoMensaje.contenido.substring(0, 30) + '...' : 
+                              u.ultimoMensaje.contenido
+                            ) : 
+                            u.nombreUsuario
+                          )
+                        }
+                      </p>
                     </div>
-                    <p className="text-sm text-gray-500 truncate">{u.nombreUsuario}</p>
                   </div>
-                </div>
-              ))
+                );
+              }).filter(Boolean) // Filtrar elementos null
+            ) : usuarios.length === 0 ? (
+              <div className="p-4 text-center text-gray-500">
+                <div className="text-gray-400 mb-2">💬</div>
+                <p>No tienes conversaciones aún</p>
+                <p className="text-xs mt-1">Inicia una conversación con tus compañeros</p>
+              </div>
             ) : (
-              <div className="p-4 text-center text-gray-500">No se encontraron usuarios</div>
+              <div className="p-4 text-center text-gray-500">
+                <div className="text-gray-400 mb-2">🔍</div>
+                <p>No se encontraron usuarios</p>
+                <p className="text-xs mt-1">Prueba con otro término de búsqueda</p>
+              </div>
             )}
           </div>
         </div>
@@ -306,12 +384,14 @@ export default function Chat() {
               </div>
             </>
           )}
-        </div>
-        {/* Mensajes */}
+        </div>        {/* Mensajes */}
         <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
           {(() => {
             let lastDate: string | null = null;
-            return messages.map((m, idx) => {
+            const renderedItems: React.ReactElement[] = [];
+            let keyCounter = 0;
+            
+            messages.forEach((m, idx) => {
               // Obtener fecha (solo día, mes, año)
               let dateObj: Date | null = null;
               // Usar epochMillis si existe, si no usar fecha
@@ -328,16 +408,25 @@ export default function Chat() {
                   dateObj = new Date((m.fecha as any).low);
                 }
               }
+              
               const dateStr = dateObj ? dateObj.toLocaleDateString() : '';
               const showDate = dateStr && dateStr !== lastDate;
-              lastDate = dateStr || lastDate;
-              return [
-                showDate && (
-                  <div key={`date-${dateStr}`} className="text-center text-xs text-gray-400 my-2 select-none">
+                if (showDate) {
+                keyCounter++;
+                renderedItems.push(
+                  <div key={`date-${keyCounter}`} className="text-center text-xs text-gray-400 my-2 select-none">
                     {dateObj?.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}
                   </div>
-                ),
-                <div key={m._id || idx} className={`flex ${m.from === currentUserId ? 'justify-end' : 'justify-start'}`}>
+                );
+                lastDate = dateStr;
+              }
+              
+              // Generar clave única simple usando contador
+              keyCounter++;
+              const messageKey = `msg-${keyCounter}`;
+              
+              renderedItems.push(
+                <div key={messageKey} className={`flex ${m.from === currentUserId ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-xs md:max-w-md lg:max-w-lg px-4 py-2 rounded-lg ${m.from === currentUserId ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white text-gray-800 rounded-bl-none shadow-sm'}`}>
                     <div>{m.contenido}</div>
                     <div className={`text-xs mt-1 ${m.from === currentUserId ? 'text-blue-200' : 'text-gray-500'} text-right`}>
@@ -345,8 +434,10 @@ export default function Chat() {
                     </div>
                   </div>
                 </div>
-              ];
+              );
             });
+            
+            return renderedItems;
           })()}
           <div ref={messagesEndRef} />
         </div>
