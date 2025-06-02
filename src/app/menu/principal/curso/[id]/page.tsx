@@ -1563,11 +1563,10 @@ export default function CursoDetallePage() {
               </CardContent>
             </Card>          </div>
         </div>
-      </div>
-
-      {/* Dialog para realizar evaluación */}
-      <Dialog open={evaluacionDialogOpen} onOpenChange={setEvaluacionDialogOpen}>        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+      </div>      {/* Dialog para realizar evaluación */}
+      <Dialog open={evaluacionDialogOpen} onOpenChange={setEvaluacionDialogOpen}>
+        <DialogContent className="max-w-4xl h-[70vh] overflow-hidden flex flex-col">
+          <DialogHeader className="pb-4 flex-shrink-0">
             <DialogTitle>
               {modoRevision ? '👁️ Revisión de Respuestas' : evaluacionEnCurso?.titulo || 'Evaluación'}
             </DialogTitle>
@@ -1577,24 +1576,29 @@ export default function CursoDetallePage() {
               </div>
             )}
           </DialogHeader>
-          
-          {evaluacionEnCurso && (
-            <div className="space-y-6">
-              {evaluacionEnCurso.descripcion && (
-                <p className="text-gray-600">{evaluacionEnCurso.descripcion}</p>
-              )}
-              
-              <div className="flex items-center gap-4 text-sm text-gray-500">
-                <span>📋 {evaluacionEnCurso.preguntas?.length || 0} preguntas</span>
-                {evaluacionEnCurso.tiempolimite && (
-                  <span>⏱️ {evaluacionEnCurso.tiempolimite} minutos</span>
+            {evaluacionEnCurso && (
+            <div className="flex flex-col h-full">
+              {/* Información de la evaluación */}
+              <div className="pb-4 border-b">
+                {evaluacionEnCurso.descripcion && (
+                  <p className="text-gray-600 mb-2">{evaluacionEnCurso.descripcion}</p>
                 )}
+                
+                <div className="flex items-center gap-4 text-sm text-gray-500">
+                  <span>📋 {evaluacionEnCurso.preguntas?.length || 0} preguntas</span>
+                  {evaluacionEnCurso.tiempolimite && (
+                    <span>⏱️ {evaluacionEnCurso.tiempolimite} minutos</span>
+                  )}
+                </div>
               </div>
 
-              <ScrollArea className="max-h-[50vh] pr-4">
-                <div className="space-y-6">                  {evaluacionEnCurso.preguntas?.map((pregunta: any, index: number) => {
-                    // Intentar diferentes propiedades para el texto de la pregunta
-                    const textoPregunta = pregunta.pregunta || pregunta.texto || pregunta.title || pregunta.question || 
+              {/* Área de preguntas con scroll fijo */}
+              <div className="flex-1 my-4 border rounded-lg overflow-hidden bg-gray-50">
+                <ScrollArea className="h-[400px]">
+                  <div className="p-4 space-y-6">
+                    {evaluacionEnCurso.preguntas?.map((pregunta: any, index: number) => {
+                      // Intentar diferentes propiedades para el texto de la pregunta
+                      const textoPregunta = pregunta.pregunta || pregunta.texto || pregunta.title || pregunta.question || 
                                         pregunta.enunciado || pregunta.descripcion || `Pregunta ${index + 1}`;
                     
                     // Intentar diferentes propiedades para las opciones
@@ -1656,32 +1660,36 @@ export default function CursoDetallePage() {
                           })}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </ScrollArea>              <div className="flex justify-between items-center pt-4 border-t">
-                <Button 
-                  variant="outline" 
-                  onClick={cerrarEvaluacion}
-                  disabled={loadingRespuesta}
-                >
-                  {modoRevision ? 'Cerrar Revisión' : 'Cancelar'}
-                </Button>
-                
-                {!modoRevision && (
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600">
-                      Respondidas: {respuestasEvaluacion.filter(r => r !== -1).length}/{evaluacionEnCurso.preguntas?.length || 0}
-                    </span>
-                    <Button 
-                      onClick={enviarEvaluacion}
-                      disabled={loadingRespuesta || respuestasEvaluacion.some(r => r === -1)}
-                      className="min-w-[120px]"
-                    >
-                      {loadingRespuesta ? 'Enviando...' : 'Enviar Evaluación'}
-                    </Button>
+                    );                  })}
                   </div>
-                )}
+                </ScrollArea>
+              </div>
+
+              {/* Botones de acción - fuera del área de scroll */}
+              <div className="pt-4 border-t bg-white">
+                <div className="flex justify-between items-center">
+                  <Button 
+                    variant="outline" 
+                    onClick={cerrarEvaluacion}
+                    disabled={loadingRespuesta}
+                  >
+                    {modoRevision ? 'Cerrar Revisión' : 'Cancelar'}
+                  </Button>                  
+                  {!modoRevision && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-gray-600">
+                        Respondidas: {respuestasEvaluacion.filter(r => r !== -1).length}/{evaluacionEnCurso.preguntas?.length || 0}
+                      </span>
+                      <Button 
+                        onClick={enviarEvaluacion}
+                        disabled={loadingRespuesta || respuestasEvaluacion.some(r => r === -1)}
+                        className="min-w-[120px]"
+                      >
+                        {loadingRespuesta ? 'Enviando...' : 'Enviar Evaluación'}
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
