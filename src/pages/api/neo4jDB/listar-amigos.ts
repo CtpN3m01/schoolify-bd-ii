@@ -17,11 +17,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.query.username) {
       // Llama a la API de MongoDB para buscar usuario
       const mongoRes = await axios.get(`${process.env.NEXT_PUBLIC_BASE_URL || ''}/api/mongoDB/Usuarios/buscar-usuario?username=${req.query.username}`);
-      if (mongoRes.data && mongoRes.data._id) {
-        // Buscar amigos en Neo4j usando el _id de MongoDB
+      if (mongoRes.data && mongoRes.data._id) {        // Buscar amigos en Neo4j usando el _id de MongoDB
         const result = await session.run(`
           MATCH (yo:Usuario {_id: $userId})-[:AMIGO]-(amigo:Usuario {_id: $amigoId})
-          RETURN amigo._id AS id, amigo.nombre AS name, amigo.nombreUsuario AS username, amigo.foto AS avatar, amigo.estado AS status, amigo.descripcion AS description, amigo.universidad AS university
+          RETURN amigo._id AS id, 
+                 trim(COALESCE(amigo.nombre, '') + ' ' + COALESCE(amigo.apellido1, '') + ' ' + COALESCE(amigo.apellido2, '')) AS name, 
+                 amigo.nombreUsuario AS username, amigo.foto AS avatar, amigo.estado AS status, amigo.descripcion AS description, amigo.universidad AS university
         `, { userId, amigoId: mongoRes.data._id });
         const amigos = result.records.map(r => ({
           id: r.get('id'),
@@ -35,11 +36,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(200).json({ success: true, amigos });
       } else {
         return res.status(404).json({ message: 'Usuario no encontrado en MongoDB' });      }
-    }
-
-    const result = await session.run(`
+    }    const result = await session.run(`
       MATCH (yo:Usuario {_id: $userId})-[:AMIGO]-(amigo:Usuario)
-      RETURN amigo._id AS id, amigo.nombre AS name, amigo.nombreUsuario AS username, amigo.foto AS avatar, amigo.estado AS status, amigo.descripcion AS description, amigo.universidad AS university
+      RETURN amigo._id AS id, 
+             trim(COALESCE(amigo.nombre, '') + ' ' + COALESCE(amigo.apellido1, '') + ' ' + COALESCE(amigo.apellido2, '')) AS name, 
+             amigo.nombreUsuario AS username, amigo.foto AS avatar, amigo.estado AS status, amigo.descripcion AS description, amigo.universidad AS university
     `, { userId });
     const amigos = result.records.map(r => ({
       id: r.get('id'),

@@ -11,8 +11,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ message: 'Faltan datos obligatorios' });
   }
   const driver = connectNeo4j();
-  const session = driver.session();
-  try {
+  const session = driver.session();  try {
     // Verificar si ya existe una solicitud pendiente o amistad
     const check = await session.run(
       `MATCH (a:Usuario {_id: $fromUserId})-[r]->(b:Usuario {_id: $toUserId})
@@ -23,6 +22,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (check.records.length > 0) {
       return res.status(409).json({ message: 'Ya existe una solicitud o amistad' });
     }
+    
+    // Limpiar cualquier solicitud duplicada que pueda existir (por si acaso)
+    await session.run(
+      `MATCH (a:Usuario {_id: $fromUserId})-[r:SOLICITUD_AMISTAD]->(b:Usuario {_id: $toUserId})
+       DELETE r`,
+      { fromUserId, toUserId }
+    );
+    
     // Crear la solicitud de amistad
     await session.run(
       `MATCH (a:Usuario {_id: $fromUserId}), (b:Usuario {_id: $toUserId})

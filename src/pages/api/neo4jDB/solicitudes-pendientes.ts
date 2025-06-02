@@ -12,14 +12,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   const driver = connectNeo4j();
   const session = driver.session();
-  try {
-    const result = await session.run(`
+  try {    const result = await session.run(`
       MATCH (from:Usuario)-[s:SOLICITUD_AMISTAD {estado: 'pendiente'}]->(to:Usuario {_id: $userId})
-      RETURN from._id AS id, from.nombre AS name, from.foto AS avatar, from.estado AS status, from.descripcion AS description, from.universidad AS university, s.fecha AS fechaSolicitud
+      RETURN DISTINCT from._id AS id, 
+             trim(COALESCE(from.nombre, '') + ' ' + COALESCE(from.apellido1, '') + ' ' + COALESCE(from.apellido2, '')) AS name, 
+             from.nombreUsuario AS username, from.foto AS avatar, from.estado AS status, from.descripcion AS description, from.universidad AS university, s.fecha AS fechaSolicitud
+      ORDER BY s.fecha DESC
     `, { userId });
     const solicitudes = result.records.map(r => ({
       id: r.get('id'),
       name: r.get('name'),
+      username: r.get('username'),
       avatar: r.get('avatar'),
       status: r.get('status') || 'Desconocido',
       description: r.get('description'),

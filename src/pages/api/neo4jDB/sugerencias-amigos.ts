@@ -24,11 +24,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       WITH collect(DISTINCT sugerido) + collect(DISTINCT sugerido2) AS sugeridos, yo
       UNWIND sugeridos AS s
       WITH DISTINCT s, yo
-      WHERE s IS NOT NULL AND NOT (yo)-[:SOLICITUD_AMISTAD]->(s) AND NOT (s)-[:SOLICITUD_AMISTAD]->(yo)
-      // Calcular amigos en común
+      WHERE s IS NOT NULL AND NOT (yo)-[:SOLICITUD_AMISTAD]->(s) AND NOT (s)-[:SOLICITUD_AMISTAD]->(yo)      // Calcular amigos en común
       OPTIONAL MATCH (yo)-[:AMIGO]->(amigoComun:Usuario)<-[:AMIGO]-(s)
       WITH s, count(DISTINCT amigoComun) AS mutualFriends
-      RETURN s._id AS id, s.nombre AS name, s.foto AS avatar, mutualFriends
+      RETURN s._id AS id, 
+             trim(COALESCE(s.nombre, '') + ' ' + COALESCE(s.apellido1, '') + ' ' + COALESCE(s.apellido2, '')) AS name, 
+             s.foto AS avatar, mutualFriends
       LIMIT 20
     `, { userId });
     const sugerencias = result.records.map(r => ({

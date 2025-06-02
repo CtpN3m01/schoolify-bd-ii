@@ -12,10 +12,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   const driver = connectNeo4j();
   const session = driver.session();
-  try {
-    const result = await session.run(`
+  try {    const result = await session.run(`
       MATCH (u:Usuario {_id: $userId})
-      RETURN u._id AS _id, u.nombre AS nombre, u.apellido1 AS apellido1, u.apellido2 AS apellido2, 
+      RETURN u._id AS _id, 
+             trim(COALESCE(u.nombre, '') + ' ' + COALESCE(u.apellido1, '') + ' ' + COALESCE(u.apellido2, '')) AS nombre,
              u.nombreUsuario AS nombreUsuario, u.foto AS foto, u.estado AS estado, 
              u.descripcion AS descripcion, u.universidad AS universidad, u.fechaNacimiento AS fechaNacimiento
       LIMIT 1
@@ -24,13 +24,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (result.records.length === 0) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
-    
-    const u = result.records[0];
+      const u = result.records[0];
     res.status(200).json({
       _id: u.get('_id'),
       nombre: u.get('nombre'),
-      apellido1: u.get('apellido1'),
-      apellido2: u.get('apellido2'),
       nombreUsuario: u.get('nombreUsuario'),
       foto: u.get('foto'),
       estado: u.get('estado') || 'Activo',

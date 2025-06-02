@@ -36,22 +36,38 @@ export default function Perfil() {
   const [loadingCursosDocente, setLoadingCursosDocente] = useState(true);
   const { user: currentUser } = useUser();
 
-  // Mover hooks aquí para asegurar que se usan solo en el cliente
-  // Permitir ver perfil propio o ajeno (por id en query param)
+  // Mover hooks aquí para asegurar que se usan solo en el cliente  // Permitir ver perfil propio o ajeno (por id o username en query param)
   const perfilId = typeof window !== 'undefined' && searchParams ? searchParams.get("id") : null;
-  const isOwnProfile = !perfilId || (currentUser && currentUser.nombreUsuario === perfilId);
-  useEffect(() => {
-    // Si hay id en query param, buscar ese usuario, si no, el propio
+  const perfilUsername = typeof window !== 'undefined' && searchParams ? searchParams.get("username") : null;
+  const targetParam = perfilUsername || perfilId;
+  const isOwnProfile = !targetParam || (currentUser && currentUser.nombreUsuario === targetParam);  useEffect(() => {
+    // Si hay id o username en query param, buscar ese usuario, si no, el propio
     const fetchUser = async () => {
       setLoadingUser(true);
-      if (perfilId) {
-        // Buscar usuario por username (perfil ajeno)
-        const res = await fetch(`/api/neo4jDB/buscar-usuario-por-username?username=${perfilId}&userId=0`);
-        if (res.ok) {
-          const data = await res.json();
-          setUser({ ...data, nombreUsuario: perfilId });
-        } else {
-          setUser(null);
+      if (targetParam) {
+        // Determinar si es un ID (24 caracteres hex) o username
+        const isObjectId = /^[0-9a-fA-F]{24}$/.test(targetParam);
+        const isIdFallback = targetParam.startsWith('id_');
+        
+        if (isObjectId || isIdFallback) {
+          // Buscar usuario por ID
+          const actualId = isIdFallback ? targetParam.substring(3) : targetParam;
+          const res = await fetch(`/api/neo4jDB/buscar-usuario-por-id?userId=${actualId}`);
+          if (res.ok) {
+            const data = await res.json();
+            setUser(data);
+          } else {
+            setUser(null);
+          }        } else {
+          // Buscar usuario por username
+          const res = await fetch(`/api/neo4jDB/buscar-usuario-por-username?username=${targetParam}&userId=0`);
+          if (res.ok) {
+            const data = await res.json();
+            console.log('Datos del usuario por username:', data);
+            setUser({ ...data, nombreUsuario: data.nombreUsuario || targetParam });
+          } else {
+            setUser(null);
+          }
         }
       } else {
         // Perfil propio: obtener usuario autenticado
@@ -66,7 +82,7 @@ export default function Perfil() {
       setLoadingUser(false);
     };
     fetchUser();
-  }, [perfilId]);  useEffect(() => {
+  }, [targetParam]);useEffect(() => {
     if (!user) return;
     // Obtener cursos matriculados desde Neo4j solo si hay identificador
     const userNeoId = user._id || user.id || user.nombreUsuario;
@@ -364,7 +380,7 @@ export default function Perfil() {
         </div>
         {/* Info personal */}
         <div className="flex-1 flex flex-col justify-center">
-          <h1 className="text-3xl font-bold mb-6">{perfilId ? `Perfil de @${perfilId}` : "Mi perfil"}</h1>
+          <h1 className="text-3xl font-bold mb-6">{targetParam ? `Perfil de @${user?.nombreUsuario || targetParam}` : "Mi perfil"}</h1>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
               <div className="text-gray-500 text-xs uppercase mb-1">Nombre</div>

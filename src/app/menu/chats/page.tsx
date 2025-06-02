@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { io as clientIO, Socket } from 'socket.io-client';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useUser } from '@/app/UserContext';
 
 interface Usuario {
@@ -41,15 +41,18 @@ export default function Chat() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useUser();
   // Get current user ID from context
   const currentUserId = user?._id || '';
-
+  // Check if there's a userId in URL to open that chat directly
+  const targetUserId = searchParams?.get('userId');
   // Debug user info
   useEffect(() => {
     console.log('Current user from context:', user);
     console.log('Current userId:', currentUserId);
-  }, [user, currentUserId]);  // Cargar usuarios con conversaciones existentes
+    console.log('Target userId from URL:', targetUserId);
+  }, [user, currentUserId, targetUserId]);// Cargar usuarios con conversaciones existentes
   useEffect(() => {
     if (!currentUserId) return;
     
@@ -74,8 +77,44 @@ export default function Chat() {
       .catch(error => {
         console.error('Error cargando usuarios con conversaciones:', error);
         setUsuarios([]);
-      });
-  }, [currentUserId]);
+      });  }, [currentUserId]);
+
+  // Auto-open chat if userId is provided in URL
+  useEffect(() => {
+    if (targetUserId && usuarios.length > 0) {
+      // Check if the target user exists in the loaded users
+      const targetUser = usuarios.find(u => u._id === targetUserId);
+      if (targetUser) {
+        setActiveChat(targetUserId);
+        // Clear the URL parameter after opening the chat
+        router.replace('/menu/chats', { scroll: false });
+      } else {
+        // If user is not in conversations, try to add them by fetching user info
+        fetch(`/api/neo4jDB/buscar-usuario-por-id?userId=${targetUserId}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data && data._id) {              // Add the user to the conversations list
+              const newUser: Usuario = {
+                _id: data._id,
+                nombreUsuario: data.nombreUsuario,
+                nombre: data.nombre || '',
+                apellido1: '',
+                apellido2: '',
+                foto: data.foto
+              };
+              setUsuarios(prev => [...prev, newUser]);
+              setActiveChat(targetUserId);
+              // Clear the URL parameter
+              router.replace('/menu/chats', { scroll: false });
+            }
+          })
+          .catch(error => {
+            console.error('Error loading target user:', error);
+          });
+      }
+    }
+  }, [targetUserId, usuarios, router]);
+
   // Estado para marcar chats con mensajes nuevos
   const [newMessages, setNewMessages] = useState<{ [userId: string]: boolean }>({});// Actualizar mensajes y contadores en tiempo real
   useEffect(() => {

@@ -96,7 +96,6 @@ export default function Amigos() {
       .then(data => setSuggestions(data.sugerencias || []))
       .finally(() => setLoadingSuggestions(false));
   }, [currentUserId]);
-
   // Buscar usuario por username
   const handleSearchUser = async () => {
     setSearching(true);
@@ -106,7 +105,16 @@ export default function Amigos() {
       const res = await fetch(`/api/neo4jDB/buscar-usuario-por-username?username=${searchUsername}&userId=${currentUserId}`);
       if (res.ok) {
         const data = await res.json();
-        setSearchResult(data);
+        // Mapear los datos de la API a la interfaz Friend
+        setSearchResult({
+          id: data._id,
+          name: data.nombre, // Usar 'nombre' que ya incluye nombre + apellidos
+          username: data.nombreUsuario,
+          avatar: data.foto,
+          status: data.estado,
+          description: data.descripcion,
+          university: data.universidad
+        });
       } else {
         setSearchError("Usuario no encontrado");
       }
@@ -116,13 +124,15 @@ export default function Amigos() {
       setSearching(false);
     }
   };
-
   // Filtrar amigos basado en la búsqueda
   // Elimina duplicados por id (string o number)
   const uniqueFriends = Array.from(new Map(friends.map(f => [String(f.id), f])).values());
   const filteredFriends = uniqueFriends.filter(friend => 
     friend.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  
+  // Eliminar duplicados de solicitudes también
+  const uniqueSolicitudes = Array.from(new Map(solicitudes.map(s => [String(s.id), s])).values());
   
   // Filtrar sugerencias basado en la búsqueda
   const filteredSuggestions = suggestions.filter(suggestion => 
@@ -242,12 +252,12 @@ export default function Amigos() {
                   />
                 </div>
               )}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            </div>            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {loadingSolicitudes ? (
                 <div className="text-center col-span-full py-8 text-muted-foreground">Cargando solicitudes...</div>
-              ) : solicitudes.length > 0 ? (
-                solicitudes.map((sol) => (                  <FriendCard
+              ) : uniqueSolicitudes.length > 0 ? (
+                uniqueSolicitudes.map((sol) => (
+                  <FriendCard
                     key={sol.id}
                     name={sol.name}
                     username={sol.username}
@@ -294,8 +304,8 @@ function FriendCard({ id, name, username, avatar, status, description, universit
   const [rejected, setRejected] = useState(false);
   const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') || '' : '';
   const router = useRouter();
-
   const handleSendRequest = async () => {
+    if (loading || sent) return; // Prevenir múltiples clics
     setLoading(true);
     try {
       const res = await fetch('/api/neo4jDB/enviar-solicitud-amistad', {
@@ -303,8 +313,21 @@ function FriendCard({ id, name, username, avatar, status, description, universit
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fromUserId: currentUserId, toUserId: id })
       });
-      if (res.ok) setSent(true);
+      if (res.ok) {
+        setSent(true);
+        toast.success('Solicitud de amistad enviada');
+      } else {
+        const errorData = await res.json();
+        if (res.status === 409) {
+          setSent(true); // Marcar como enviada si ya existe
+          toast.info('La solicitud ya fue enviada anteriormente');
+        } else {
+          toast.error(errorData.message || 'Error al enviar solicitud');
+        }
+      }
       if (refresh) refresh();
+    } catch (error) {
+      toast.error('Error de conexión');
     } finally {
       setLoading(false);
     }
@@ -343,35 +366,46 @@ function FriendCard({ id, name, username, avatar, status, description, universit
 
   return (
     <Card className="relative flex flex-col gap-2 p-4">
-      <div className="flex items-center gap-3">
-        <HoverCard>
+      <div className="flex items-center gap-3">        <HoverCard>
           <HoverCardTrigger asChild>
             <div className="relative cursor-pointer w-12 h-12">
-              <Image 
-                src={avatar} 
-                alt={name} 
-                width={48}
-                height={48}
-                className="rounded-full object-cover border border-muted" 
-              />
+              {avatar && avatar.trim() !== '' ? (
+                <Image 
+                  src={avatar} 
+                  alt={`Avatar de ${name}`} 
+                  width={48}
+                  height={48}
+                  className="rounded-full object-cover border border-muted" 
+                />
+              ) : (                <div className="w-12 h-12 rounded-full bg-muted border border-muted flex items-center justify-center">
+                  <span className="text-muted-foreground font-medium">
+                    {name && name.length > 0 ? name.charAt(0).toUpperCase() : '?'}
+                  </span>
+                </div>
+              )}
               <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border border-white ${status === "En línea" ? "bg-green-500" : "bg-gray-400"}`} />
             </div>
           </HoverCardTrigger>
-          <HoverCardContent className="w-80">
-            <div className="flex justify-between space-x-4">
+          <HoverCardContent className="w-80">            <div className="flex justify-between space-x-4">
               <div className="flex flex-col space-y-1">
                 <div className="flex items-center gap-2">
                   <div className="relative w-14 h-14">
-                    <Image 
-                      src={avatar} 
-                      alt={name} 
-                      width={56}
-                      height={56}
-                      className="rounded-full object-cover border-2 border-muted" 
-                    />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-semibold">{name}</h4>
+                    {avatar && avatar.trim() !== '' ? (
+                      <Image 
+                        src={avatar} 
+                        alt={`Avatar de ${name}`} 
+                        width={56}
+                        height={56}
+                        className="rounded-full object-cover border-2 border-muted" 
+                      />                    ) : (
+                      <div className="w-14 h-14 rounded-full bg-muted border-2 border-muted flex items-center justify-center">
+                        <span className="text-muted-foreground font-medium text-lg">
+                          {name && name.length > 0 ? name.charAt(0).toUpperCase() : '?'}
+                        </span>
+                      </div>
+                    )}
+                  </div>                  <div>
+                    <h4 className="text-sm font-semibold">{name || 'Sin nombre'}</h4>
                     <p className="text-xs text-muted-foreground">{university}</p>
                     <span className="text-xs inline-flex items-center mt-1">
                       <span className={`w-2 h-2 rounded-full mr-1 ${status === "En línea" ? "bg-green-500" : "bg-gray-400"}`}></span>
@@ -383,9 +417,8 @@ function FriendCard({ id, name, username, avatar, status, description, universit
               </div>
             </div>
           </HoverCardContent>
-        </HoverCard>
-        <div>
-          <h3 className="font-medium text-base">{name}</h3>
+        </HoverCard>        <div>
+          <h3 className="font-medium text-base">{name || 'Sin nombre'}</h3>
           <p className="text-xs text-muted-foreground">{status}</p>
         </div>
       </div>
@@ -430,7 +463,7 @@ function FriendCard({ id, name, username, avatar, status, description, universit
                 <DialogHeader>
                   <DialogTitle>¿Eliminar amigo?</DialogTitle>
                 </DialogHeader>
-                <p>¿Estás seguro que deseas eliminar a <span className="font-semibold">{name}</span> de tu lista de amigos? Esta acción no se puede deshacer.</p>
+                <p>¿Estás seguro que deseas eliminar a <span className="font-semibold">{name || 'este usuario'}</span> de tu lista de amigos? Esta acción no se puede deshacer.</p>
                 <DialogFooter>
                   <DialogClose asChild>
                     <button className="px-4 py-1 rounded bg-muted text-muted-foreground hover:bg-muted/70">Cancelar</button>
@@ -454,107 +487,8 @@ function FriendCard({ id, name, username, avatar, status, description, universit
             </Dialog>
           </>        )}        <button
           className="text-xs bg-blue-600 text-white hover:bg-blue-700 transition-colors px-3 py-1.5 rounded"
-          onClick={() => router.push(`/menu/perfil?id=${username || id}`)}
+          onClick={() => router.push(`/menu/perfil?username=${username || `id_${id}`}`)}
         >Ver perfil</button>
-      </div>
-    </Card>
-  );
-}
-
-// Componente para mostrar una sugerencia de amistad
-interface SuggestionCardProps {
-  name: string;
-  avatar: string;
-  mutualFriends: number;
-  description?: string;
-  university?: string;
-}
-
-function SuggestionCard({ name, avatar, mutualFriends, description, university, id }: SuggestionCardProps & { id: number }) {
-  const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
-
-  // Simulación: usuario actual (debería venir de auth)
-  const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') || '' : '';
-
-  const handleSendRequest = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/neo4jDB/enviar-solicitud-amistad', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromUserId: currentUserId, toUserId: id })
-      });
-      if (res.ok) {
-        setSent(true);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Card className="p-3 flex items-center justify-between border transition-all duration-300 hover:shadow-md hover:border-primary/20 hover:translate-y-[-2px] cursor-pointer rounded-md">
-      <div className="flex items-center gap-3">
-        <HoverCard>
-          <HoverCardTrigger asChild>
-            <div className="relative w-12 h-12 cursor-pointer">
-              <Image 
-                src={avatar} 
-                alt={name} 
-                width={48}
-                height={48}
-                className="rounded-full object-cover border border-muted" 
-              />
-            </div>
-          </HoverCardTrigger>
-          <HoverCardContent className="w-80">
-            <div className="flex justify-between space-x-4">
-              <div className="flex flex-col space-y-1">
-                <div className="flex items-center gap-2">
-                  <div className="relative w-14 h-14">
-                    <Image 
-                      src={avatar} 
-                      alt={name} 
-                      width={56}
-                      height={56}
-                      className="rounded-full object-cover border-2 border-muted" 
-                    />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-semibold">{name}</h4>
-                    <p className="text-xs text-muted-foreground">{university}</p>
-                    <span className="text-xs inline-flex items-center mt-1">
-                      {mutualFriends} amigos en común
-                    </span>
-                  </div>
-                </div>
-                <p className="text-sm">
-                  {description || "Sin descripción disponible"}
-                </p>
-              </div>
-            </div>
-          </HoverCardContent>
-        </HoverCard>
-        <div>
-          <h3 className="font-medium text-base">{name}</h3>
-          <p className="text-xs text-muted-foreground">
-            {mutualFriends} amigos en común
-          </p>
-        </div>
-      </div>
-      <div className="flex gap-2">
-        <button
-          className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded disabled:opacity-60"
-          onClick={handleSendRequest}
-          disabled={loading || sent}
-        >
-          {sent ? 'Solicitud enviada' : loading ? 'Enviando...' : 'Agregar'}
-        </button>
-        <button className="text-xs text-muted-foreground hover:bg-muted transition-colors px-2 py-1.5 rounded">
-          Ignorar
-        </button>
-      </div>
-    </Card>
+      </div>    </Card>
   );
 }
