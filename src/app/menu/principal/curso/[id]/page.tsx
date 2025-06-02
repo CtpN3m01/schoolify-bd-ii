@@ -41,6 +41,16 @@ export default function CursoDetallePage() {
     return `${day}/${month}/${year}`;
   };
 
+  const formatNeo4jDate = (dateStr: string) => {
+    if (!dateStr) return 'No especificada';
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('es-ES');
+    } catch {
+      return 'Fecha inválida';
+    }
+  };
+
   const router = useRouter();
   const params = useParams();
   const { user } = useUser();
@@ -65,27 +75,58 @@ export default function CursoDetallePage() {
   const [loadingComentarios, setLoadingComentarios] = useState<{ [seccionId: string]: boolean }>({});
   const [nuevoComentario, setNuevoComentario] = useState<{ [seccionId: string]: string }>({});
   const [enviandoComentario, setEnviandoComentario] = useState<{ [seccionId: string]: boolean }>({});
-
   // Estados para consultas/mensajes
   const [consultas, setConsultas] = useState<any[]>([]);
   const [loadingConsultas, setLoadingConsultas] = useState(false);
   const [nuevaConsulta, setNuevaConsulta] = useState({ titulo: '', mensaje: '' });
   const [mostrarFormConsulta, setMostrarFormConsulta] = useState(false);
-  const [enviandoConsulta, setEnviandoConsulta] = useState(false);  const [respuestaConsulta, setRespuestaConsulta] = useState<{ [consultaId: string]: string }>({});
+  const [enviandoConsulta, setEnviandoConsulta] = useState(false);
+  const [respuestaConsulta, setRespuestaConsulta] = useState<{ [consultaId: string]: string }>({});
   const [loadingRespuestaConsulta, setLoadingRespuestaConsulta] = useState<{ [consultaId: string]: boolean }>({});
-    // Refs para evitar múltiples ejecuciones
+  
+  // Refs para evitar múltiples ejecuciones
   const comentarioRequestRef = useRef<{ [seccionId: string]: boolean }>({});
   const consultaRequestRef = useRef<boolean>(false);
   const lastCommentTimeRef = useRef<{ [seccionId: string]: number }>({});
   const lastConsultaTimeRef = useRef<number>(0);
 
-  const formatNeo4jDate = (dateStr: string) => {
-    if (!dateStr) return 'No especificada';
+  // Función para navegar al chat del docente
+  const abrirChatDocente = useCallback(async () => {
+    if (!curso?.nombreUsuarioDocente || !user) return;
+
     try {
-      const date = new Date(dateStr);
-      return date.toLocaleDateString('es-ES');
-    } catch {
-      return 'Fecha inválida';
+      // Navegar al chat con el parámetro del username del docente
+      router.push(`/menu/chats?abrir=${encodeURIComponent(curso.nombreUsuarioDocente)}`);
+    } catch (error) {
+      console.error('Error al abrir chat del docente:', error);
+      toast('Error al abrir el chat del docente');
+    }
+  }, [curso?.nombreUsuarioDocente, user, router]);  // Función para ir al chat del docente (usando la misma lógica que en amigos)
+  const irAlChatDocente = async () => {
+    if (!curso?.nombreUsuarioDocente || !user?._id) {
+      toast('No se pudo encontrar la información del docente o del usuario actual');
+      return;
+    }
+    
+    try {
+      // Buscar al docente por username para obtener su ObjectId
+      const response = await fetch(`/api/neo4jDB/buscar-usuario-por-username?username=${encodeURIComponent(curso.nombreUsuarioDocente)}&userId=${encodeURIComponent(user._id)}`);
+      
+      if (!response.ok) {
+        throw new Error('Error al buscar el docente');
+      }
+
+      const data = await response.json();
+      
+      if (data._id) {
+        // Navegar al chat usando el ObjectId del docente (igual que en amigos)
+        router.push(`/menu/chats?userId=${data._id}`);
+      } else {
+        toast('No se encontró el docente en el sistema');
+      }
+    } catch (error) {
+      console.error('Error al buscar el docente:', error);
+      toast('Error al abrir el chat del docente');
     }
   };
 
@@ -644,11 +685,22 @@ export default function CursoDetallePage() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Descripción:</p>
                   <p className="text-sm">{curso.descripcion}</p>
-                </div>
-                <div>
+                </div>                <div>
                   <p className="text-sm font-medium text-gray-600">Docente:</p>
                   <p className="text-sm">{curso.nombreUsuarioDocente}</p>
                 </div>
+                  {/* Botón para consultar al docente */}
+                <div className="pt-3">
+                  <Button 
+                    onClick={irAlChatDocente}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                    size="sm"
+                  >
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    Enviar Consulta al Chat
+                  </Button>
+                </div>
+                
                 <div>
                   <p className="text-sm font-medium text-gray-600">Fecha de inicio:</p>
                   <p className="text-sm">{formatNeo4jDate(curso.fechaInicio)}</p>
@@ -1369,10 +1421,10 @@ export default function CursoDetallePage() {
                               ? "¡Sé el primero en hacer una consulta!"
                               : "Aún no hay consultas de los estudiantes."}
                           </p>
-                        </div>
-                      ) : (
+                        </div>                      ) : (
                         <div className="space-y-4">
-                          {consultas.map((consulta: any) => (
+                          {/* Deduplicar consultas por ID para evitar claves duplicadas */}
+                          {Array.from(new Map(consultas.map(consulta => [consulta.id, consulta])).values()).map((consulta: any) => (
                             <Card key={consulta.id}>
                               <CardHeader>
                                 <div className="flex justify-between items-start">
@@ -1565,7 +1617,7 @@ export default function CursoDetallePage() {
                             if (modoRevision) {
                               // En modo revisión, mostrar indicadores visuales
                               if (esCorrecto && esSeleccionado) {
-                                className += " bg-green-100 border border-green-300"; // Correcto y seleccionado
+                                                               className += " bg-green-100 border border-green-300"; // Correcto y seleccionado
                                 contenidoExtra = <span className="text-green-600 font-semibold ml-2">✓ Correcto</span>;
                               } else if (esCorrecto) {
                                 className += " bg-green-50 border border-green-200"; // Respuesta correcta no seleccionada

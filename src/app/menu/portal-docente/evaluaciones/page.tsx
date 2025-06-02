@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,8 +8,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import Image from "next/image";
 
 export default function Evaluaciones() {
+  const router = useRouter();
   // Estado del formulario
   const [nombre, setNombre] = useState("");
   const [fechaInicio, setFechaInicio] = useState("");
@@ -37,10 +41,14 @@ export default function Evaluaciones() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Estado para el dialog de resultados
-  const [resultadosDialogOpen, setResultadosDialogOpen] = useState(false);
-  const [resultadosDetallados, setResultadosDetallados] = useState<any[]>([]);
+  const [resultadosDialogOpen, setResultadosDialogOpen] = useState(false);  const [resultadosDetallados, setResultadosDetallados] = useState<any[]>([]);
   const [estudianteSeleccionado, setEstudianteSeleccionado] = useState<any>(null);
   const [detalleRespuestasOpen, setDetalleRespuestasOpen] = useState(false);
+
+  // Estados para el tab de notas de estudiantes
+  const [estudiantes, setEstudiantes] = useState<any[]>([]);
+  const [loadingEstudiantes, setLoadingEstudiantes] = useState(false);
+  const [resultadosCompletos, setResultadosCompletos] = useState<any[]>([]);
 
   // Cargar cursos donde el usuario es docente (usando el usuario autenticado de la API)
   useEffect(() => {
@@ -64,7 +72,6 @@ export default function Evaluaciones() {
     }
     fetchCursosDocente();
   }, []);
-
   // Cargar evaluaciones del curso seleccionado
   useEffect(() => {
     if (!cursoSeleccionado) return;
@@ -72,6 +79,36 @@ export default function Evaluaciones() {
       .then(res => res.json())
       .then(data => setEvaluaciones(data.evaluaciones || []));
   }, [cursoSeleccionado, success]);
+
+  // Cargar estudiantes matriculados cuando cambia el curso seleccionado
+  useEffect(() => {
+    if (!cursoSeleccionado) return;
+    setLoadingEstudiantes(true);
+    fetch(`/api/neo4jDB/estudiantes-matriculados?cursoId=${cursoSeleccionado}`)
+      .then(res => res.json())
+      .then(data => {
+        setEstudiantes(data.estudiantes || []);
+        // Cargar resultados de evaluaciones para todos los estudiantes
+        cargarResultadosCompletos(cursoSeleccionado);
+      })
+      .catch(error => {
+        console.error('Error cargando estudiantes:', error);
+        setEstudiantes([]);
+      })
+      .finally(() => setLoadingEstudiantes(false));
+  }, [cursoSeleccionado]);
+
+  // Función para cargar todos los resultados de evaluaciones del curso
+  const cargarResultadosCompletos = async (cursoId: string) => {
+    try {
+      const res = await fetch(`/api/cassandraDB/evaluaciones?resultadosCurso=1&cursoId=${cursoId}`);
+      const data = await res.json();
+      setResultadosCompletos(data.resultados || []);
+    } catch (error) {
+      console.error('Error cargando resultados completos:', error);
+      setResultadosCompletos([]);
+    }
+  };
   // Cargar resultados de estudiantes para la evaluación seleccionada
   const cargarResultados = async (evaluacion: any) => {
     setEvaluacionSeleccionada(evaluacion);
@@ -222,18 +259,33 @@ export default function Evaluaciones() {
   const esRespuestaSinResponder = (respuestaEstudiante: number) => {
     return respuestaEstudiante === undefined || respuestaEstudiante === null || respuestaEstudiante === -1;
   };
-
   // Asegura que el tab inicial sea válido si no hay cursos
   useEffect(() => {
     if (cursos.length === 0 && tab !== "crear") setTab("crear");
   }, [cursos, tab]);
 
+  // Función para obtener la nota de un estudiante en una evaluación específica
+  const obtenerNotaEstudiante = (estudianteId: string, evaluacionId: string) => {
+    const resultado = resultadosCompletos.find(r => 
+      r.idestudiante === estudianteId && r.idevaluacion === evaluacionId
+    );
+    return resultado ? resultado.calificacion : null;
+  };
+
+  // Función para calcular el promedio de un estudiante
+  const calcularPromedioEstudiante = (estudianteId: string) => {
+    const notas = evaluaciones.map(ev => obtenerNotaEstudiante(estudianteId, ev.id))
+                             .filter(nota => nota !== null);
+    if (notas.length === 0) return null;
+    return notas.reduce((sum, nota) => sum + nota, 0) / notas.length;
+  };
+
   return (
     <div className="max-w-4xl mx-auto p-6 bg-white rounded-xl shadow mt-8">
-      <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList className="mb-6 w-full">
+      <Tabs value={tab} onValueChange={setTab} className="w-full">        <TabsList className="mb-6 w-full">
           <TabsTrigger value="crear">Crear evaluación</TabsTrigger>
           <TabsTrigger value="ver">Evaluaciones</TabsTrigger>
+          <TabsTrigger value="notas">Notas de estudiantes</TabsTrigger>
         </TabsList>
         <TabsContent value="crear">
           <h1 className="text-2xl font-bold mb-6">Crear evaluación tipo test</h1>
@@ -540,6 +592,175 @@ export default function Evaluaciones() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+        </TabsContent>
+
+        <TabsContent value="notas">
+          <h1 className="text-2xl font-bold mb-6">Notas de estudiantes</h1>
+          <div className="mb-4">
+            <label className="font-medium">Curso</label>
+            <select
+              className="border rounded px-2 py-1 w-full mt-1"
+              value={cursoSeleccionado}
+              onChange={e => setCursoSeleccionado(e.target.value)}
+            >
+              {cursos.map(c => (
+                <option key={c._id} value={c._id}>{c.nombreCurso}</option>
+              ))}
+            </select>
+          </div>
+
+          {loadingEstudiantes ? (
+            <div className="text-center py-8">
+              <div className="text-gray-500">Cargando estudiantes y evaluaciones...</div>
+            </div>
+          ) : estudiantes.length === 0 ? (
+            <div className="text-center py-8">
+              <div className="text-gray-500">No hay estudiantes matriculados en este curso.</div>
+            </div>
+          ) : evaluaciones.length === 0 ? (
+            <div className="text-center py-8">
+              <div className="text-gray-500">No hay evaluaciones creadas para este curso.</div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="bg-white rounded-lg shadow border">
+                <table className="min-w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="border-b px-4 py-3 text-left font-semibold text-gray-900">
+                        Estudiante
+                      </th>
+                      {evaluaciones.map(ev => (
+                        <th key={ev.id} className="border-b px-4 py-3 text-center font-semibold text-gray-900 min-w-[120px]">
+                          <div className="text-sm">{ev.nombre}</div>
+                          <div className="text-xs text-gray-500 font-normal">
+                            {formatDateForInput(ev.fechainicio)} - {formatDateForInput(ev.fechafin)}
+                          </div>
+                        </th>
+                      ))}
+                      <th className="border-b px-4 py-3 text-center font-semibold text-gray-900 bg-blue-50">
+                        Promedio
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {estudiantes.map((estudiante, idx) => {
+                      const promedio = calcularPromedioEstudiante(estudiante.id || estudiante.idestudiante);
+                      return (
+                        <tr key={estudiante.id || estudiante.idestudiante || idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                          <td className="border-b px-4 py-3">
+                            <div 
+                              className="flex items-center gap-3 cursor-pointer hover:bg-gray-100 rounded-lg p-2 transition-all duration-200"
+                              onClick={() => router.push(`/menu/perfil?username=${estudiante.nombreUsuario}`)}
+                            >
+                              <Avatar className="h-10 w-10">
+                                {estudiante.foto ? (
+                                  <AvatarImage 
+                                    src={estudiante.foto} 
+                                    alt={estudiante.nombreCompleto || estudiante.nombreUsuario || 'Usuario'}
+                                    onError={(e) => {
+                                      // Si la imagen falla, usar el fallback
+                                      const target = e.target as HTMLImageElement;
+                                      target.style.display = 'none';
+                                    }}
+                                  />
+                                ) : null}
+                                <AvatarFallback className="bg-blue-100 text-blue-700 font-semibold">
+                                  {estudiante.nombreCompleto && estudiante.nombreCompleto.trim() 
+                                    ? estudiante.nombreCompleto.trim().charAt(0).toUpperCase()
+                                    : (estudiante.nombreUsuario ? estudiante.nombreUsuario.charAt(0).toUpperCase() : 'U')
+                                  }
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="flex flex-col">
+                                <div className="font-medium text-gray-900 hover:text-blue-600 transition-colors">
+                                  {estudiante.nombreCompleto && estudiante.nombreCompleto.trim() 
+                                    ? estudiante.nombreCompleto.trim() 
+                                    : estudiante.nombreUsuario || `Estudiante ${estudiante.id || estudiante.idestudiante}`
+                                  }
+                                </div>
+                                {estudiante.nombreUsuario && (
+                                  <div className="text-sm text-gray-500">@{estudiante.nombreUsuario}</div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          {evaluaciones.map(evaluacion => {
+                            const nota = obtenerNotaEstudiante(estudiante.id || estudiante.idestudiante, evaluacion.id);
+                            return (
+                              <td key={evaluacion.id} className="border-b px-4 py-3 text-center">
+                                {nota !== null ? (
+                                  <div>
+                                    <div className={`inline-flex items-center px-2 py-1 rounded-full text-sm font-medium ${
+                                      nota >= 70 ? 'bg-green-100 text-green-800' :
+                                      nota >= 50 ? 'bg-yellow-100 text-yellow-800' :
+                                      'bg-red-100 text-red-800'
+                                    }`}>
+                                      {nota.toFixed(1)}%
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="text-gray-400 text-sm">No realizada</div>
+                                )}
+                              </td>
+                            );
+                          })}
+                          <td className="border-b px-4 py-3 text-center bg-blue-50">
+                            {promedio !== null ? (
+                              <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-bold ${
+                                promedio >= 70 ? 'bg-green-100 text-green-800' :
+                                promedio >= 50 ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-red-100 text-red-800'
+                              }`}>
+                                {promedio.toFixed(1)}%
+                              </div>
+                            ) : (
+                              <div className="text-gray-400 text-sm">Sin notas</div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Resumen estadístico */}
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <div className="text-lg font-semibold text-blue-900">
+                    {estudiantes.length}
+                  </div>
+                  <div className="text-sm text-blue-700">
+                    Estudiantes matriculados
+                  </div>
+                </div>
+                <div className="bg-green-50 rounded-lg p-4">
+                  <div className="text-lg font-semibold text-green-900">
+                    {evaluaciones.length}
+                  </div>
+                  <div className="text-sm text-green-700">
+                    Evaluaciones creadas
+                  </div>
+                </div>
+                <div className="bg-purple-50 rounded-lg p-4">
+                  <div className="text-lg font-semibold text-purple-900">
+                    {(() => {
+                      const promedios = estudiantes.map(est => 
+                        calcularPromedioEstudiante(est.id || est.idestudiante)
+                      ).filter(p => p !== null);
+                      return promedios.length > 0 ? 
+                        (promedios.reduce((sum, p) => sum + p, 0) / promedios.length).toFixed(1) + '%' :
+                        'N/A';
+                    })()}
+                  </div>
+                  <div className="text-sm text-purple-700">
+                    Promedio general del curso
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

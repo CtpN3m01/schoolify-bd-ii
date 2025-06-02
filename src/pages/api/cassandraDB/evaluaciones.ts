@@ -159,6 +159,55 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(500).json({ error: 'Error al obtener resultados de evaluación', details: e });
     }
     return;
+  }  if (req.method === 'GET' && req.query.resultadosCurso === '1') {
+    // Obtener todos los resultados de evaluaciones para un curso específico
+    const { cursoId } = req.query;
+    try {
+      // Primero obtener todas las evaluaciones del curso
+      const evaluaciones = await client.execute('SELECT id FROM evaluaciones WHERE idcurso = ? ALLOW FILTERING', [cursoId], { prepare: true });
+      const evaluacionesIds = evaluaciones.rows.map((r: any) => r.id);
+      
+      let todosLosResultados: any[] = [];
+      
+      // Para cada evaluación, obtener todos los resultados
+      for (const evalId of evaluacionesIds) {
+        const resultados = await client.execute('SELECT * FROM respuestas WHERE idevaluacion = ?', [evalId], { prepare: true });
+        todosLosResultados.push(...resultados.rows);
+      }
+      
+      // Obtener información de estudiantes desde MongoDB
+      const estudiantesIds = [...new Set(todosLosResultados.map((r: any) => r.idestudiante))];
+      let estudiantesInfo: any = {};
+      
+      if (estudiantesIds.length > 0) {
+        try {
+          const { connectMongoDB } = require('../mongoDB/connection/conector-mongoDB');
+          const mongoClient = await connectMongoDB();
+          const db = mongoClient.db("ProyectoIBasesII");
+          const usuarios = db.collection('Usuarios');
+          
+          const objectIds = estudiantesIds.map((id: string) => new ObjectId(id));
+          const usuariosResult = await usuarios.find({ _id: { $in: objectIds } }).toArray();
+          
+          usuariosResult.forEach((usuario: any) => {
+            estudiantesInfo[usuario._id.toString()] = `${usuario.nombre} ${usuario.apellido1} ${usuario.apellido2}`.trim();
+          });
+        } catch (mongoError) {
+          console.error('Error al obtener información de estudiantes:', mongoError);
+        }
+      }
+
+      // Agregar nombre completo a los resultados
+      const resultadosConNombres = todosLosResultados.map((resultado: any) => ({
+        ...resultado,
+        nombreCompleto: estudiantesInfo[resultado.idestudiante] || `Usuario ${resultado.idestudiante}`
+      }));
+      
+      res.status(200).json({ ok: true, resultados: resultadosConNombres });
+    } catch (e) {
+      res.status(500).json({ error: 'Error al obtener resultados del curso', details: e });
+    }
+    return;
   }
   res.status(405).json({ error: 'Método o parámetros no soportados' });
 }
