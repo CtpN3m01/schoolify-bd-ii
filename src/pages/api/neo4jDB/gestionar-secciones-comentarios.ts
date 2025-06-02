@@ -20,12 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         MERGE (u:Usuario {nombreUsuario: $docenteId})
         ON CREATE SET u._id = $docenteId, u.fechaCreacion = datetime(), u.rol = 'docente'
       `, { docenteId });      // Obtener datos del curso desde MongoDB
-      let nombreCurso = 'Curso Temporal';
-      let estado = 'Activo';
-      let fechaInicio = new Date().toISOString().split('T')[0]; // Formato YYYY-MM-DD
-      let fechaFin = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 1 año después
-      let descripcion = 'Descripción temporal';
-      let nombreUsuarioDocente = '';
+      let cursoData = null;
       
       try {
         const mongoClient = await connectMongoDB();
@@ -33,26 +28,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const cursosCollection = db.collection('Cursos');
         const { ObjectId } = require('mongodb');
         
-        const curso = await cursosCollection.findOne({ _id: new ObjectId(cursoId) });
-        if (curso) {
-          if (curso.nombreCurso) nombreCurso = curso.nombreCurso;
-          if (curso.estado) estado = curso.estado;
-          if (curso.fechaInicio) {
-            // Convertir a formato YYYY-MM-DD
-            const fecha = new Date(curso.fechaInicio);
-            fechaInicio = fecha.toISOString().split('T')[0];
-          }
-          if (curso.fechaFin) {
-            // Convertir a formato YYYY-MM-DD
-            const fecha = new Date(curso.fechaFin);
-            fechaFin = fecha.toISOString().split('T')[0];
-          }
-          if (curso.descripcion) descripcion = curso.descripcion;
-          if (curso.nombreUsuarioDocente) nombreUsuarioDocente = curso.nombreUsuarioDocente;
+        cursoData = await cursosCollection.findOne({ _id: new ObjectId(cursoId) });
+        
+        if (!cursoData) {
+          return res.status(404).json({ 
+            error: 'Curso no encontrado en MongoDB. No se puede crear sección de comentarios.' 
+          });
         }
       } catch (mongoError) {
-        console.log('No se pudo obtener el curso desde MongoDB, usando valores por defecto');
-      }// Verificar/crear el curso en Neo4j si no existe
+        console.log('Error obteniendo el curso desde MongoDB:', mongoError);
+        return res.status(500).json({ 
+          error: 'Error al acceder a los datos del curso. No se puede crear sección de comentarios.' 
+        });
+      }
+
+      // Usar datos del curso obtenidos de MongoDB
+      const nombreCurso = cursoData.nombreCurso || 'Sin nombre';
+      const estado = cursoData.estado || 'Activo';
+      const fechaInicio = cursoData.fechaInicio ? new Date(cursoData.fechaInicio).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+      const fechaFin = cursoData.fechaFin ? new Date(cursoData.fechaFin).toISOString().split('T')[0] : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const descripcion = cursoData.descripcion || 'Sin descripción';
+      const nombreUsuarioDocente = cursoData.nombreUsuarioDocente || '';// Verificar/crear el curso en Neo4j si no existe
       await session.run(`
         MERGE (c:Curso {id: $cursoId})
         ON CREATE SET 

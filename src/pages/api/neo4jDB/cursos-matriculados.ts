@@ -13,20 +13,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const driver = connectNeo4j();
   const session = driver.session();  try {    const result = await session.run(
       `MATCH (u:Usuario {_id: $userId})-[:MATRICULADO_EN]->(c:Curso)
-       RETURN coalesce(c._id, c.id) AS _id, c.nombreCurso AS nombreCurso, c.descripcion AS descripcion, c.foto AS foto, c.fechaInicio AS fechaInicio, c.fechaFin AS fechaFin, c.estado AS estado, c.nombreUsuarioDocente AS nombreUsuarioDocente`,
+       WHERE c.nombreCurso IS NOT NULL 
+         AND c.nombreCurso <> ''
+         AND c.nombreCurso <> 'Curso Temporal'
+         AND c.descripcion <> 'Descripción temporal'
+         AND c._id IS NOT NULL
+       RETURN DISTINCT coalesce(c._id, c.id) AS _id, c.nombreCurso AS nombreCurso, c.descripcion AS descripcion, c.foto AS foto, c.fechaInicio AS fechaInicio, c.fechaFin AS fechaFin, c.estado AS estado, c.nombreUsuarioDocente AS nombreUsuarioDocente`,
       { userId }
     );
     
-    const cursos = result.records.map(r => ({
-      _id: r.get('_id'),
-      nombreCurso: r.get('nombreCurso'),
-      descripcion: r.get('descripcion'),
-      foto: r.get('foto'),
-      fechaInicio: r.get('fechaInicio'),
-      fechaFin: r.get('fechaFin'),
-      estado: r.get('estado'),
-      nombreUsuarioDocente: r.get('nombreUsuarioDocente'),
-    }));
+    const cursosMap = new Map();
+    result.records.forEach(r => {
+      const cursoData = {
+        _id: r.get('_id'),
+        nombreCurso: r.get('nombreCurso'),
+        descripcion: r.get('descripcion'),
+        foto: r.get('foto'),
+        fechaInicio: r.get('fechaInicio'),
+        fechaFin: r.get('fechaFin'),
+        estado: r.get('estado'),
+        nombreUsuarioDocente: r.get('nombreUsuarioDocente'),
+      };
+      
+      // Solo agregar si tiene un ID válido y no es temporal
+      if (cursoData._id && 
+          cursoData.nombreCurso && 
+          cursoData.nombreCurso !== 'Curso Temporal' &&
+          cursoData.descripcion !== 'Descripción temporal') {
+        cursosMap.set(cursoData._id, cursoData);
+      }
+    });
+    
+    const cursos = Array.from(cursosMap.values());
     
     res.status(200).json({ cursos });
   } catch (error) {

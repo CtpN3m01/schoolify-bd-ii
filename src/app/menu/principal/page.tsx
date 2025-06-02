@@ -30,7 +30,6 @@ export default function Principal() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const cursosPerPage = 6;
-
   useEffect(() => {
     const fetchCursosMatriculados = async () => {
       try {
@@ -44,7 +43,17 @@ export default function Principal() {
         }
         const response = await fetch(`/api/neo4jDB/cursos-matriculados?userId=${userId}`);
         const result = await response.json();
-        setCursos(result.cursos || []);
+        
+        // Filtrar cursos duplicados y temporales en el frontend también
+        const cursosUnicos = (result.cursos || []).filter((curso: Curso, index: number, self: Curso[]) => {
+          return curso._id && 
+                 curso.nombreCurso && 
+                 curso.nombreCurso !== 'Curso Temporal' &&
+                 curso.descripcion !== 'Descripción temporal' &&
+                 index === self.findIndex(c => c._id === curso._id);
+        });
+        
+        setCursos(cursosUnicos);
         setLoading(false);
       } catch (error) {
         setCursos([]);
@@ -127,10 +136,9 @@ export default function Principal() {
         </div>
       </header>
 
-      <main className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8">
-        {loading ? (
+      <main className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8">        {loading ? (
           Array.from({ length: 6 }).map((_, index) => (
-            <Card key={index} className="h-full flex flex-col">
+            <Card key={`skeleton-${index}`} className="h-full flex flex-col">
               <Skeleton className="h-48 w-full rounded-t-md" />
               <CardHeader>
                 <Skeleton className="h-6 w-3/4" />
@@ -151,8 +159,8 @@ export default function Principal() {
         ) : cursosFiltrados.length === 0 ? (
           <div className="col-span-full text-center">No hay cursos disponibles.</div>
         ) : (
-          currentCursos.map((curso) => (
-            <Card key={curso._id} className="h-full flex flex-col cursor-pointer" onClick={() => handleCursoClick(curso)}>
+          currentCursos.map((curso, index) => (
+            <Card key={`curso-${curso._id}-${index}`} className="h-full flex flex-col cursor-pointer" onClick={() => handleCursoClick(curso)}>
               {curso.foto && (
                 <Image src={curso.foto} alt={curso.nombreCurso} width={400} height={200} className="rounded-t-md object-cover h-48 w-full" />
               )}
@@ -184,9 +192,8 @@ export default function Principal() {
                 }}
                 className={currentPage === 1 ? "opacity-50 pointer-events-none" : ""}
               />
-              
-              {Array.from({ length: totalPages }).map((_, index) => (
-                <PaginationItem key={index}>
+                {Array.from({ length: totalPages }).map((_, index) => (
+                <PaginationItem key={`page-${index}`}>
                   <PaginationLink 
                     href="#" 
                     isActive={currentPage === index + 1}
