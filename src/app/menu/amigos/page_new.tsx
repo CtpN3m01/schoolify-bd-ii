@@ -66,7 +66,12 @@ export default function Amigos() {
   
   // Simulación: usuario actual (debería venir de auth)
   const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') || '' : '';
-  
+
+  // Debug para verificar el userId
+  useEffect(() => {
+    console.log('Current userId en amigos:', currentUserId);
+  }, [currentUserId]);
+
   // Función de búsqueda con debounce
   const searchUsersWithDebounce = useCallback(async (query: string) => {
     if (!query.trim() || query.length < 2) {
@@ -93,8 +98,8 @@ export default function Amigos() {
         // Buscar por coincidencia exacta primero
         const exactRes = await fetch(`/api/neo4jDB/buscar-usuario-por-username?username=${encodeURIComponent(query)}&userId=${currentUserId}`);
         
-        // Buscar por similitud/porcentaje usando un endpoint que debería existir o crear
-        const similarRes = await fetch(`/api/neo4jDB/buscar-usuarios-similares?query=${encodeURIComponent(query)}&userId=${currentUserId}&limit=5`);
+        // Buscar por similitud/porcentaje usando explorar con el query como filtro
+        const exploreRes = await fetch(`/api/neo4jDB/explorar?userId=${currentUserId}&search=${encodeURIComponent(query)}&limit=5`);
         
         const results: Friend[] = [];
         
@@ -112,17 +117,23 @@ export default function Amigos() {
           });
         }
         
-        // Agregar resultados similares si existen
-        if (similarRes.ok) {
-          const similarData = await similarRes.json();
-          const similarUsers = (similarData.usuarios || [])
-            .filter((user: any) => !results.some(r => r.id === user._id)) // Evitar duplicados
+        // Agregar resultados similares si existen (usando explorar como fallback)
+        if (exploreRes.ok) {
+          const exploreData = await exploreRes.json();
+          const similarUsers = (exploreData.usuarios || [])
+            .filter((user: any) => 
+              user._id !== currentUserId && // No incluir el usuario actual
+              !results.some(r => r.id === user._id) && // Evitar duplicados
+              (user.nombre.toLowerCase().includes(query.toLowerCase()) || 
+               user.nombreUsuario.toLowerCase().includes(query.toLowerCase()))
+            )
+            .slice(0, 4) // Limitar a 4 resultados adicionales
             .map((user: any) => ({
               id: user._id,
               name: user.nombre,
               username: user.nombreUsuario,
               avatar: user.foto,
-              status: user.estado,
+              status: user.estado || 'offline',
               description: user.descripcion,
               university: user.universidad
             }));
@@ -151,13 +162,9 @@ export default function Amigos() {
     return () => {
       if (searchTimeoutRef.current) {
         clearTimeout(searchTimeoutRef.current);
-      }    };
+      }
+    };
   }, [searchUsername, searchUsersWithDebounce]);
-  
-  // Debug para verificar el userId
-  useEffect(() => {
-    console.log('Current userId en amigos:', currentUserId);
-  }, [currentUserId]);
 
   // Cargar amigos reales
   useEffect(() => {
@@ -186,7 +193,8 @@ export default function Amigos() {
     fetch(`/api/neo4jDB/sugerencias-amigos?userId=${currentUserId}`)
       .then(res => res.json())
       .then(data => setSuggestions(data.sugerencias || []))
-      .finally(() => setLoadingSuggestions(false));  }, [currentUserId]);
+      .finally(() => setLoadingSuggestions(false));
+  }, [currentUserId]);
 
   // Función mejorada para actualizar solicitudes con mejor manejo de errores
   const actualizarSolicitudes = useCallback(async () => {
@@ -280,7 +288,8 @@ export default function Amigos() {
               {loadingFriends ? (
                 <div className="text-center col-span-full py-8 text-muted-foreground">Cargando amigos...</div>
               ) : filteredFriends.length > 0 ? (
-                filteredFriends.map((friend) => (                  <FriendCard 
+                filteredFriends.map((friend) => (
+                  <FriendCard 
                     key={friend.id}
                     id={friend.id}
                     name={friend.name}
@@ -300,30 +309,48 @@ export default function Amigos() {
                 </div>
               )}
             </div>
-          </TabsContent>          <TabsContent value="solicitudes">            <div className="mb-4">
+          </TabsContent>
+
+          <TabsContent value="solicitudes">
+            <div className="mb-4">
               <div className="flex gap-2 mb-4">
                 <Input
                   type="search"
-                  placeholder="Buscar usuario por username..."
+                  placeholder="Buscar usuario (búsqueda en tiempo real)..."
                   value={searchUsername}
                   onChange={e => setSearchUsername(e.target.value)}
                   className="flex-1"
                 />
                 <button
-                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-60 text-sm"
+                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-60 text-sm flex items-center gap-2"
                   onClick={actualizarSolicitudes}
                   disabled={loadingSolicitudes}
                 >
-                  <RefreshCw className={`w-4 h-4 mr-2 ${loadingSolicitudes ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-4 h-4 ${loadingSolicitudes ? 'animate-spin' : ''}`} />
                   {loadingSolicitudes ? 'Actualizando...' : 'Actualizar Solicitudes'}
                 </button>
               </div>
-              {searching && <div className="text-sm text-muted-foreground">Buscando...</div>}
-              {searchError && <div className="text-sm text-destructive">{searchError}</div>}
+              
+              {/* Indicador de búsqueda */}
+              {searching && (
+                <div className="text-sm text-blue-600 mb-2 flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  Buscando usuarios...
+                </div>
+              )}
+              
+              {/* Error de búsqueda */}
+              {searchError && (
+                <div className="text-sm text-destructive mb-2">{searchError}</div>
+              )}
+              
+              {/* Resultados de búsqueda */}
               {searchResults.length > 0 && (
-                <div className="mt-4">
-                  <h3 className="text-sm font-medium mb-2">Resultados de búsqueda:</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                <div className="mb-4">
+                  <h3 className="text-sm font-medium text-gray-700 mb-2">
+                    Resultados de búsqueda ({searchResults.length}):
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {searchResults.map((result) => (
                       <FriendCard
                         key={result.id}
@@ -341,7 +368,9 @@ export default function Amigos() {
                   </div>
                 </div>
               )}
-            </div>            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {loadingSolicitudes ? (
                 <div className="text-center col-span-full py-8 text-muted-foreground">Cargando solicitudes...</div>
               ) : uniqueSolicitudes.length > 0 ? (
@@ -366,6 +395,35 @@ export default function Amigos() {
               )}
             </div>
           </TabsContent>
+
+          <TabsContent value="suggestions">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {loadingSuggestions ? (
+                <div className="text-center col-span-full py-8 text-muted-foreground">Cargando sugerencias...</div>
+              ) : filteredSuggestions.length > 0 ? (
+                filteredSuggestions.map((suggestion) => (
+                  <FriendCard
+                    key={suggestion.id}
+                    id={suggestion.id}
+                    name={suggestion.name}
+                    avatar={suggestion.avatar}
+                    status="suggestion"
+                    description={suggestion.description}
+                    university={suggestion.university}
+                    mutualFriends={suggestion.mutualFriends}
+                    showAddFriend
+                    refresh={refreshFriendsAndSolicitudes}
+                  />
+                ))
+              ) : (
+                <div className="text-left p-6 border rounded-lg bg-muted/30 col-span-full">
+                  <p className="text-muted-foreground">
+                    {searchQuery ? "No se encontraron sugerencias con ese nombre." : "No hay sugerencias disponibles en este momento."}
+                  </p>
+                </div>
+              )}
+            </div>
+          </TabsContent>
         </Tabs>
       </div>
     </div>
@@ -381,203 +439,229 @@ interface FriendCardProps {
   status: string;
   description?: string;
   university?: string;
+  mutualFriends?: number;
   showAddFriend?: boolean;
   showAcceptReject?: boolean;
   refresh?: () => void;
 }
 
-function FriendCard({ id, name, username, avatar, status, description, university, showAddFriend, showAcceptReject, refresh }: FriendCardProps) {
-  const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [accepted, setAccepted] = useState(false);
-  const [rejected, setRejected] = useState(false);
-  const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') || '' : '';
+function FriendCard({ id, name, username, avatar, status, description, university, mutualFriends, showAddFriend, showAcceptReject, refresh }: FriendCardProps) {
   const router = useRouter();
-  const handleSendRequest = async () => {
-    if (loading || sent) return; // Prevenir múltiples clics
-    setLoading(true);
+  const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') || '' : '';
+
+  const handleAddFriend = async () => {
     try {
       const res = await fetch('/api/neo4jDB/enviar-solicitud-amistad', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromUserId: currentUserId, toUserId: id })
+        body: JSON.stringify({
+          remitenteId: currentUserId,
+          destinatarioId: id
+        })
       });
+      
       if (res.ok) {
-        setSent(true);
-        toast.success('Solicitud de amistad enviada');
+        toast("Solicitud de amistad enviada");
+        refresh?.();
       } else {
-        const errorData = await res.json();
-        if (res.status === 409) {
-          setSent(true); // Marcar como enviada si ya existe
-          toast.info('La solicitud ya fue enviada anteriormente');
-        } else {
-          toast.error(errorData.message || 'Error al enviar solicitud');
-        }
+        const data = await res.json();
+        toast(data.message || "Error al enviar solicitud");
       }
-      if (refresh) refresh();
-    } catch (error) {
-      toast.error('Error de conexión');
-    } finally {
-      setLoading(false);
-    }
-  };
-  const handleAccept = async () => {
-    setLoading(true);
-    try {
-      await fetch('/api/neo4jDB/aceptar-solicitud-amistad', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromUserId: id, toUserId: currentUserId })
-      });
-      setAccepted(true);
-      if (refresh) refresh();
-    } finally {
-      setLoading(false);
-    }
-  };
-  const handleReject = async () => {
-    setLoading(true);
-    try {
-      await fetch('/api/neo4jDB/rechazar-solicitud-amistad', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromUserId: id, toUserId: currentUserId })
-      });
-      setRejected(true);
-      if (refresh) refresh();
-    } finally {
-      setLoading(false);
+    } catch {
+      toast("Error al enviar solicitud de amistad");
     }
   };
 
-  if (accepted) return <Card className="p-3">Solicitud aceptada</Card>;
-  if (rejected) return <Card className="p-3">Solicitud rechazada</Card>;
+  const handleAcceptFriend = async () => {
+    try {
+      const res = await fetch('/api/neo4jDB/aceptar-solicitud-amistad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          remitenteId: id,
+          destinatarioId: currentUserId
+        })
+      });
+      
+      if (res.ok) {
+        toast("Solicitud aceptada");
+        refresh?.();
+      } else {
+        const data = await res.json();
+        toast(data.message || "Error al aceptar solicitud");
+      }
+    } catch {
+      toast("Error al aceptar solicitud");
+    }
+  };
+
+  const handleRejectFriend = async () => {
+    try {
+      const res = await fetch('/api/neo4jDB/rechazar-solicitud-amistad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          remitenteId: id,
+          destinatarioId: currentUserId
+        })
+      });
+      
+      if (res.ok) {
+        toast("Solicitud rechazada");
+        refresh?.();
+      } else {
+        const data = await res.json();
+        toast(data.message || "Error al rechazar solicitud");
+      }
+    } catch {
+      toast("Error al rechazar solicitud");
+    }
+  };
+
+  const handleRemoveFriend = async () => {
+    try {
+      const res = await fetch('/api/neo4jDB/eliminar-amigo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          usuario1Id: currentUserId,
+          usuario2Id: id
+        })
+      });
+      
+      if (res.ok) {
+        toast("Amigo eliminado");
+        refresh?.();
+      } else {
+        const data = await res.json();
+        toast(data.message || "Error al eliminar amigo");
+      }
+    } catch {
+      toast("Error al eliminar amigo");
+    }
+  };
+
+  const goToChat = async () => {
+    try {
+      router.push(`/menu/chats?userId=${id}`);
+    } catch (error) {
+      console.error('Error al ir al chat:', error);
+      toast('Error al abrir el chat');
+    }
+  };
 
   return (
-    <Card className="relative flex flex-col gap-2 p-4">
-      <div className="flex items-center gap-3">        <HoverCard>
+    <Card className="p-4 hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between">
+        <HoverCard>
           <HoverCardTrigger asChild>
-            <div className="relative cursor-pointer w-12 h-12">
-              {avatar && avatar.trim() !== '' ? (
-                <Image 
-                  src={avatar} 
-                  alt={`Avatar de ${name}`} 
-                  width={48}
-                  height={48}
-                  className="rounded-full object-cover border border-muted" 
-                />
-              ) : (                <div className="w-12 h-12 rounded-full bg-muted border border-muted flex items-center justify-center">
-                  <span className="text-muted-foreground font-medium">
-                    {name && name.length > 0 ? name.charAt(0).toUpperCase() : '?'}
-                  </span>
+            <div className="flex items-center space-x-3 cursor-pointer">
+              <Image 
+                src={avatar || "/default-avatar.png"} 
+                alt={name}
+                width={48}
+                height={48}
+                className="rounded-full object-cover"
+              />
+              <div>
+                <h3 className="font-medium text-sm">{name}</h3>
+                {username && <p className="text-xs text-muted-foreground">@{username}</p>}
+                <div className="flex items-center space-x-2 mt-1">
+                  <div className={`w-2 h-2 rounded-full ${
+                    status === 'online' ? 'bg-green-500' : 
+                    status === 'offline' ? 'bg-gray-400' :
+                    status === 'suggestion' ? 'bg-blue-500' : 'bg-yellow-500'
+                  }`} />
+                  <span className="text-xs capitalize text-muted-foreground">{status}</span>
                 </div>
-              )}
-              <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border border-white ${status === "En línea" ? "bg-green-500" : "bg-gray-400"}`} />
+              </div>
             </div>
           </HoverCardTrigger>
-          <HoverCardContent className="w-80">            <div className="flex justify-between space-x-4">
-              <div className="flex flex-col space-y-1">
-                <div className="flex items-center gap-2">
-                  <div className="relative w-14 h-14">
-                    {avatar && avatar.trim() !== '' ? (
-                      <Image 
-                        src={avatar} 
-                        alt={`Avatar de ${name}`} 
-                        width={56}
-                        height={56}
-                        className="rounded-full object-cover border-2 border-muted" 
-                      />                    ) : (
-                      <div className="w-14 h-14 rounded-full bg-muted border-2 border-muted flex items-center justify-center">
-                        <span className="text-muted-foreground font-medium text-lg">
-                          {name && name.length > 0 ? name.charAt(0).toUpperCase() : '?'}
-                        </span>
-                      </div>
-                    )}
-                  </div>                  <div>
-                    <h4 className="text-sm font-semibold">{name || 'Sin nombre'}</h4>
-                    <p className="text-xs text-muted-foreground">{university}</p>
-                    <span className="text-xs inline-flex items-center mt-1">
-                      <span className={`w-2 h-2 rounded-full mr-1 ${status === "En línea" ? "bg-green-500" : "bg-gray-400"}`}></span>
-                      {status}
-                    </span>
-                  </div>
-                </div>
-                <p className="text-sm">{description || "Sin descripción disponible"}</p>
+          <HoverCardContent className="w-80">
+            <div className="flex justify-between space-x-4">
+              <Image 
+                src={avatar || "/default-avatar.png"} 
+                alt={name}
+                width={48}
+                height={48}
+                className="rounded-full"
+              />
+              <div className="space-y-1 flex-1">
+                <h4 className="text-sm font-semibold">{name}</h4>
+                {username && <p className="text-xs text-muted-foreground">@{username}</p>}
+                {description && <p className="text-xs">{description}</p>}
+                {university && <p className="text-xs text-muted-foreground">📚 {university}</p>}
+                {mutualFriends !== undefined && (
+                  <p className="text-xs text-muted-foreground">
+                    👥 {mutualFriends} amigos en común
+                  </p>
+                )}
               </div>
             </div>
           </HoverCardContent>
-        </HoverCard>        <div>
-          <h3 className="font-medium text-base">{name || 'Sin nombre'}</h3>
-          <p className="text-xs text-muted-foreground">{status}</p>
-        </div>
+        </HoverCard>
       </div>
-      <div className="flex gap-2 mt-2">
+
+      <div className="mt-3 flex gap-2">
         {showAddFriend && (
           <button
-            className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded disabled:opacity-60"
-            onClick={handleSendRequest}
-            disabled={loading || sent}
+            onClick={handleAddFriend}
+            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs py-1.5 px-3 rounded transition-colors"
           >
-            {sent ? 'Solicitud enviada' : loading ? 'Enviando...' : 'Agregar'}
+            Agregar
           </button>
         )}
+        
         {showAcceptReject && (
           <>
             <button
-              className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded disabled:opacity-60"
-              onClick={handleAccept}
-              disabled={loading}
-            >Aceptar</button>
+              onClick={handleAcceptFriend}
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs py-1.5 px-3 rounded transition-colors"
+            >
+              Aceptar
+            </button>
             <button
-              className="text-xs text-destructive hover:bg-destructive/10 transition-colors px-2 py-1.5 rounded disabled:opacity-60"
-              onClick={handleReject}
-              disabled={loading}
-            >Rechazar</button>
+              onClick={handleRejectFriend}
+              className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs py-1.5 px-3 rounded transition-colors"
+            >
+              Rechazar
+            </button>
           </>
         )}
+        
         {!showAddFriend && !showAcceptReject && (
           <>
             <button
-              className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors px-3 py-1.5 rounded"
-              onClick={() => router.push(`/menu/chats?userId=${id}`)}
-            >Mensaje</button>
-            <Dialog>
-              <DialogTrigger asChild>
-                <button
-                  className="text-xs text-destructive hover:bg-destructive/10 transition-colors px-2 py-1.5 rounded disabled:opacity-60 ml-2"
-                  disabled={loading}
-                >Eliminar</button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>¿Eliminar amigo?</DialogTitle>
-                </DialogHeader>
-                <p>¿Estás seguro que deseas eliminar a <span className="font-semibold">{name || 'este usuario'}</span> de tu lista de amigos? Esta acción no se puede deshacer.</p>
-                <DialogFooter>
-                  <DialogClose asChild>
-                    <button className="px-4 py-1 rounded bg-muted text-muted-foreground hover:bg-muted/70">Cancelar</button>
-                  </DialogClose>
-                  <button
-                    className="px-4 py-1 rounded bg-destructive text-white hover:bg-destructive/90"
-                    onClick={async () => {
-                      setLoading(true);
-                      await fetch('/api/neo4jDB/eliminar-amigo', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId: currentUserId, friendId: id })
-                      });
-                      setLoading(false);
-                      if (refresh) refresh();
-                      toast("Amigo eliminado correctamente");
-                    }}
-                  >Eliminar</button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </>        )}        <button
-          className="text-xs bg-blue-600 text-white hover:bg-blue-700 transition-colors px-3 py-1.5 rounded"
-          onClick={() => router.push(`/menu/perfil?username=${username || `id_${id}`}`)}
-        >Ver perfil</button>
-      </div>    </Card>
+              onClick={goToChat}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs py-1.5 px-3 rounded transition-colors"
+            >
+              Chat
+            </button>
+            
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs py-1.5 px-3 rounded transition-colors">
+                  Eliminar
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Esta acción eliminará a {name} de tu lista de amigos.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleRemoveFriend}>
+                    Eliminar
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
+        )}
+      </div>
+    </Card>
   );
 }

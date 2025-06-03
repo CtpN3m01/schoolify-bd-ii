@@ -81,7 +81,6 @@ export default function Register() {  const [form, setForm] = useState({
     setForm({ ...form, foto: '' });
     setPhotoPreview(null);
   };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -95,11 +94,33 @@ export default function Register() {  const [form, setForm] = useState({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Error al registrar');
+      
       setSuccess('¡Registro exitoso!');
+      
       // Guardar el userId en localStorage
       if (data.usuario && data.usuario._id) {
         localStorage.setItem('userId', data.usuario._id);
-      }      setForm({
+      }
+
+      // Sincronizar usuario con Neo4j después de registro exitoso
+      try {
+        console.log('Sincronizando usuarios con Neo4j...');
+        const syncRes = await fetch('/api/neo4jDB/sync-usuarios', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (syncRes.ok) {
+          console.log('Sincronización exitosa');
+        } else {
+          console.warn('Error en sincronización, pero el usuario se registró correctamente');
+        }
+      } catch (syncError) {
+        console.warn('Error al sincronizar con Neo4j:', syncError);
+        // No lanzamos error aquí porque el registro fue exitoso
+      }
+
+      setForm({
         nombreUsuario: '', password: '', nombre: '', apellido1: '', apellido2: '', fechaNacimiento: '', foto: ''
       });
       setPhotoPreview(null);
