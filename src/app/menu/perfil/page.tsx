@@ -7,12 +7,14 @@ import {
   DialogContent,
   DialogClose,
   DialogTitle,
+  DialogHeader,
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useUser } from "@/app/UserContext";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, Users } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 
@@ -29,7 +31,13 @@ export default function Perfil() {
   const [showFileInput, setShowFileInput] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const avatarRef = useRef<HTMLDivElement>(null);
-  const [hovered, setHovered] = useState(false);  const router = useRouter();
+  const [hovered, setHovered] = useState(false);
+  
+  // Estados para amigos
+  const [friends, setFriends] = useState<any[]>([]);
+  const [totalFriends, setTotalFriends] = useState(0);
+  const [loadingFriends, setLoadingFriends] = useState(false);
+  const [friendsDialogOpen, setFriendsDialogOpen] = useState(false);const router = useRouter();
   const searchParams = useSearchParams();  const [cursos, setCursos] = useState<any[]>([]);
   const [cursosDocente, setCursosDocente] = useState<any[]>([]);
   const [loadingCursos, setLoadingCursos] = useState(true);
@@ -82,7 +90,7 @@ export default function Perfil() {
       setLoadingUser(false);
     };
     fetchUser();
-  }, [targetParam]);useEffect(() => {
+  }, [targetParam]);  useEffect(() => {
     if (!user) return;
     // Obtener cursos matriculados desde Neo4j solo si hay identificador
     const userNeoId = user._id || user.id || user.nombreUsuario;
@@ -102,14 +110,37 @@ export default function Perfil() {
       .then(res => res.json())
       .then(data => setCursosDocente(data.cursos || []))
       .catch(() => setCursosDocente([]))
-      .finally(() => setLoadingCursosDocente(false));
+      .finally(() => setLoadingCursosDocente(false));    // Cargar amigos del usuario
+    setLoadingFriends(true);
+    fetch(`/api/neo4jDB/listar-amigos?userId=${userNeoId}`)
+      .then(res => res.json())
+      .then(data => {
+        const friendsList = data.amigos || [];
+        // Eliminar duplicados por ID
+        const uniqueFriends = Array.from(
+          new Map(friendsList.map((friend: any) => [friend.id, friend])).values()
+        );
+        setFriends(uniqueFriends);
+        setTotalFriends(uniqueFriends.length);
+      })
+      .catch(error => {
+        console.error('Error cargando amigos:', error);
+        setFriends([]);
+        setTotalFriends(0);
+      })
+      .finally(() => setLoadingFriends(false));
   }, [user]);
-
   const handleEditClick = () => {
     setEditData({ ...user });
     setOpen(true);
     setSuccess("");
     setError("");
+  };
+  
+  const handleFriendClick = (friend: any) => {
+    setFriendsDialogOpen(false);
+    // Navegar al perfil del amigo usando su username
+    router.push(`/menu/perfil?username=${friend.username || friend.nombreUsuario}`);
   };
 
   const handleEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -266,7 +297,14 @@ export default function Perfil() {
               )}
             </Avatar>
           </div>          <span className="text-gray-700 text-base font-medium mb-1">@{user.nombreUsuario}</span>
-          <span className="text-gray-500 text-sm mb-4">{user.amigos?.length ? `${user.amigos.length} Amigos` : "Sin amigos"}</span>
+          <button 
+            className="text-gray-500 text-sm mb-4 hover:text-blue-600 transition-colors cursor-pointer flex items-center gap-1"
+            onClick={() => setFriendsDialogOpen(true)}
+            disabled={loadingFriends}
+          >
+            <Users className="w-4 h-4" />
+            {loadingFriends ? 'Cargando...' : `${totalFriends} Amigos`}
+          </button>
           {isOwnProfile && (
             <button
               className="bg-black text-white px-5 py-2 rounded-md font-medium text-sm hover:bg-gray-900 transition"
@@ -375,6 +413,76 @@ export default function Perfil() {
                 {success && <div className="text-green-600 text-sm mt-2">{success}</div>}
                 {error && <div className="text-red-600 text-sm mt-2">{error}</div>}
               </form>
+            </DialogContent>          </Dialog>
+          
+          {/* Diálogo de Lista de Amigos */}
+          <Dialog open={friendsDialogOpen} onOpenChange={setFriendsDialogOpen}>
+            <DialogContent className="max-w-2xl max-h-[80vh]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Lista de Amigos ({totalFriends})
+                </DialogTitle>
+              </DialogHeader>
+              
+              <ScrollArea className="h-[500px] pr-4">
+                {loadingFriends ? (
+                  <div className="space-y-4">
+                    {[...Array(5)].map((_, i) => (
+                      <div key={i} className="flex items-center gap-4 p-3">
+                        <Skeleton className="w-12 h-12 rounded-full" />
+                        <div className="flex-1 space-y-2">
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-3 w-24" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : friends.length > 0 ? (                  <div className="space-y-2">
+                    {friends.map((friend, index) => (
+                      <div
+                        key={`${friend.id}-${index}`}
+                        className="flex items-center gap-4 p-3 rounded-lg border hover:bg-gray-50 cursor-pointer transition-colors"
+                        onClick={() => handleFriendClick(friend)}
+                      >
+                        <Avatar className="w-12 h-12">
+                          <AvatarImage src={friend.avatar || friend.foto} alt={friend.name} />
+                          <AvatarFallback>
+                            {(friend.name || friend.nombre || friend.username || friend.nombreUsuario)?.[0]?.toUpperCase() || "U"}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-gray-900 truncate">
+                            {friend.name || friend.nombre || `${friend.nombre} ${friend.apellido1}`.trim()}
+                          </div>
+                          <div className="text-sm text-gray-500 truncate">
+                            @{friend.username || friend.nombreUsuario}
+                          </div>
+                          {friend.university && (
+                            <div className="text-xs text-gray-400 truncate">
+                              {friend.university}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {friend.status || 'Activo'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-gray-500">
+                    <Users className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                    <p className="text-lg font-medium mb-2">Sin amigos aún</p>
+                    <p className="text-sm">
+                      {isOwnProfile 
+                        ? "¡Empieza a conectarte con otros usuarios!" 
+                        : "Este usuario no tiene amigos visibles."
+                      }
+                    </p>
+                  </div>
+                )}
+              </ScrollArea>
             </DialogContent>
           </Dialog>
         </div>
@@ -418,13 +526,8 @@ export default function Perfil() {
                     key={curso._id}
                     className="flex flex-col items-center bg-white rounded-xl shadow p-4 cursor-pointer hover:bg-blue-50 transition"
                     onClick={() => {
-                      if (isOwnProfile) {
-                        // Perfil propio - cursos matriculados van a principal
-                        router.push(`/menu/principal?cursoId=${curso._id}`);
-                      } else {
-                        // Perfil ajeno - cualquier curso va a buscar
-                        router.push(`/menu/buscar?cursoId=${curso._id}`);
-                      }
+                      // Todos los cursos del perfil van a la ventana de buscar
+                      router.push(`/menu/buscar/curso/${curso._id}`);
                     }}
                     title={curso.nombreCurso}
                   >
@@ -462,13 +565,8 @@ export default function Perfil() {
                     key={curso._id}
                     className="flex flex-col items-center bg-white rounded-xl shadow p-4 cursor-pointer hover:bg-green-50 transition"
                     onClick={() => {
-                      if (isOwnProfile) {
-                        // Perfil propio - cursos como docente van a portal-docente
-                        router.push(`/menu/portal-docente/cursos?cursoId=${curso._id}`);
-                      } else {
-                        // Perfil ajeno - cualquier curso va a buscar
-                        router.push(`/menu/buscar?cursoId=${curso._id}`);
-                      }
+                      // Todos los cursos del perfil van a la ventana de buscar
+                      router.push(`/menu/buscar/curso/${curso._id}`);
                     }}
                     title={curso.nombreCurso}
                   >

@@ -178,15 +178,50 @@ export default function CursoDetallePage() {
       console.log('Respuesta del API:', data);
       
       if (response.ok) {
-        // Procesar comentarios para arreglar las fechas
-        const comentariosProcesados = (data.comentarios || []).map((comentario: any) => ({
-          ...comentario,
-          fecha: comentario.fecha ? new Date(comentario.fecha).toLocaleDateString('es-ES') : 'Sin fecha',
-          epochMillis: comentario.epochMillis || Date.now()
-        }));
+        console.log('=== DEBUGGING COMENTARIOS CARGADOS ===');
+        console.log('Comentarios originales:', data.comentarios);
+        if (data.comentarios && data.comentarios.length > 0) {
+          console.log('Primer comentario fecha:', data.comentarios[0].fecha);
+          console.log('Tipo de fecha:', typeof data.comentarios[0].fecha);
+        }        // Procesar comentarios para arreglar las fechas - mantener tanto fecha como hora
+        const comentariosProcesados = (data.comentarios || []).map((comentario: any) => {
+          // Crear una fecha válida - usar la fecha del comentario o la fecha actual
+          let fechaValida = new Date();
+          
+          // Intentar parsear la fecha del comentario si existe
+          if (comentario.fecha) {
+            const fechaParsed = new Date(comentario.fecha);
+            if (!isNaN(fechaParsed.getTime())) {
+              fechaValida = fechaParsed;
+            }
+          }
+          
+          return {
+            ...comentario,
+            fechaCompleta: fechaValida,
+            fechaFormateada: fechaValida.toLocaleDateString('es-ES'),
+            horaFormateada: fechaValida.toLocaleTimeString('es-ES'),
+            epochMillis: comentario.epochMillis || fechaValida.getTime()
+          };
+        });
+
+        // Deduplicar comentarios por ID o por combinación de autor+texto+fecha
+        const comentariosUnicos = comentariosProcesados.filter((comentario: any, index: number, array: any[]) => {
+          if (comentario.id) {
+            // Si tiene ID, usar ID para deduplicar
+            return array.findIndex((c: any) => c.id === comentario.id) === index;
+          } else {
+            // Si no tiene ID, usar combinación de autor+texto+epochMillis
+            return array.findIndex((c: any) => 
+              c.autor === comentario.autor && 
+              c.texto === comentario.texto && 
+              Math.abs((c.epochMillis || 0) - (comentario.epochMillis || 0)) < 1000 // mismo comentario si está dentro de 1 segundo
+            ) === index;
+          }
+        });
         
-        console.log('Comentarios procesados:', comentariosProcesados);
-        setComentarios(prev => ({ ...prev, [seccionId]: comentariosProcesados }));
+        console.log('Comentarios procesados:', comentariosUnicos);
+        setComentarios(prev => ({ ...prev, [seccionId]: comentariosUnicos }));
       } else if (response.status === 404) {
         // La sección de comentarios no existe aún, crear array vacío
         console.log('Sección de comentarios no encontrada, se creará al agregar el primer comentario');
@@ -238,13 +273,63 @@ export default function CursoDetallePage() {
           usuarioId: user._id,
           texto
         })
-      });
-
-      if (response.ok) {
+      });      if (response.ok) {
+        const data = await response.json();
+        const nuevoComentario = data.comentario;
+        
+        console.log('=== DEBUGGING COMENTARIO RECIBIDO ===');
+        console.log('Comentario completo:', nuevoComentario);
+        console.log('Fecha original:', nuevoComentario?.fecha);
+        console.log('Tipo de fecha:', typeof nuevoComentario?.fecha);
+        
         // Limpiar el input
-        setNuevoComentario(prev => ({ ...prev, [seccionId]: '' }));
-        // Recargar comentarios
-        await cargarComentarios(seccionId);
+        setNuevoComentario(prev => ({ ...prev, [seccionId]: '' }));// En lugar de recargar todos los comentarios, añadir solo el nuevo comentario al final
+        // para evitar duplicaciones
+        if (nuevoComentario) {
+          // Crear una fecha válida - usar la fecha del comentario o la fecha actual
+          let fechaValida = new Date();
+          
+          // Intentar parsear la fecha del comentario si existe
+          if (nuevoComentario.fecha) {
+            const fechaParsed = new Date(nuevoComentario.fecha);
+            if (!isNaN(fechaParsed.getTime())) {
+              fechaValida = fechaParsed;
+            }
+          }
+          
+          const comentarioProcesado = {
+            ...nuevoComentario,
+            fechaCompleta: fechaValida,
+            fechaFormateada: fechaValida.toLocaleDateString('es-ES'),
+            horaFormateada: fechaValida.toLocaleTimeString('es-ES'),
+            epochMillis: nuevoComentario.epochMillis || fechaValida.getTime()
+          };
+          
+          setComentarios(prev => {
+            const comentariosActuales = prev[seccionId] || [];
+            // Verificar que no existe ya este comentario (por ID o por contenido similar)
+            const yaExiste = comentariosActuales.some((c: any) => {
+              if (c.id && comentarioProcesado.id) {
+                return c.id === comentarioProcesado.id;
+              }
+              return c.autor === comentarioProcesado.autor && 
+                     c.texto === comentarioProcesado.texto && 
+                     Math.abs((c.epochMillis || 0) - (comentarioProcesado.epochMillis || 0)) < 2000;
+            });
+            
+            if (!yaExiste) {
+              return {
+                ...prev,
+                [seccionId]: [...comentariosActuales, comentarioProcesado]
+              };
+            }
+            return prev; // No añadir si ya existe
+          });
+        } else {
+          // Si no se devolvió el comentario en la respuesta, recargar todos
+          await cargarComentarios(seccionId);
+        }
+        
         toast("Comentario agregado exitosamente");
       } else {
         const data = await response.json();
@@ -719,8 +804,9 @@ export default function CursoDetallePage() {
               <CardHeader>
                 <CardTitle className="text-xl">Contenido del Curso</CardTitle>
               </CardHeader>
-              <CardContent className="flex-1">                <Tabs defaultValue="modulos" className="h-full" onValueChange={setActiveTab}>
-                  <TabsList className="grid w-full grid-cols-4">
+              <CardContent className="flex-1">                
+                <Tabs defaultValue="modulos" className="h-full" onValueChange={setActiveTab}>
+                  <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="modulos">
                       <GraduationCap className="w-4 h-4 mr-1" />
                       Módulos
@@ -729,15 +815,12 @@ export default function CursoDetallePage() {
                       <MessageSquare className="w-4 h-4 mr-1" />
                       Evaluaciones
                     </TabsTrigger>
-                    <TabsTrigger value="consultas">
-                      <MessageSquare className="w-4 h-4 mr-1" />
-                      Consultas
-                    </TabsTrigger>
                     <TabsTrigger value="estudiantes">
                       <Users className="w-4 h-4 mr-1" />
                       Estudiantes
                     </TabsTrigger>
-                  </TabsList><TabsContent value="modulos" className="mt-4 h-full">
+                  </TabsList>
+                  <TabsContent value="modulos" className="mt-4 h-full">
                     <ScrollArea className="h-[60vh] w-full pr-2">
                       {(!curso.modulos || curso.modulos.length === 0) && (!curso.contenido || curso.contenido.length === 0) ? (
                         <div className="text-center py-8">
@@ -901,12 +984,13 @@ export default function CursoDetallePage() {
                                                                       <span className="ml-1 text-xs text-blue-600">Cargando...</span>
                                                                     </div>
                                                                   ) : comentarios[cont.valor] && comentarios[cont.valor].length > 0 ? (
-                                                                    <div className="space-y-1 mb-2 max-h-24 overflow-y-auto">
-                                                                      {comentarios[cont.valor].map((comentario: any, idx: number) => (
-                                                                        <div key={idx} className="bg-white p-1 rounded border text-xs">
+                                                                    <div className="space-y-1 mb-2 max-h-24 overflow-y-auto">                                                                      {comentarios[cont.valor].map((comentario: any, idx: number) => (
+                                                                        <div key={`main-${comentario.id || comentario.epochMillis || idx}-${cont.valor}`} className="border-l-4 border-blue-200 pl-3 py-2 bg-gray-50 rounded">
                                                                           <div className="flex justify-between items-start">
-                                                                            <span className="font-medium text-gray-800">{comentario.nombreUsuario}</span>
-                                                                            <span className="text-xs text-gray-500">{new Date(comentario.fecha).toLocaleString()}</span>
+                                                                            <span className="font-medium text-gray-800">{comentario.autor || comentario.nombreUsuario}</span>
+                                                                            <span className="text-xs text-gray-500">
+                                                                              {comentario.fechaFormateada || comentario.fecha || 'Sin fecha'} - {comentario.horaFormateada || 'Sin hora'}
+                                                                            </span>
                                                                           </div>
                                                                           <p className="text-gray-700">{comentario.texto}</p>
                                                                         </div>
@@ -1037,8 +1121,7 @@ export default function CursoDetallePage() {
                                               <p className="text-sm text-gray-600">Participa en la discusión</p>
                                             </div>
                                             
-                                            {/* Área de comentarios con scroll */}
-                                            <ScrollArea className="h-[300px] p-3">
+                                            {/* Área de comentarios con scroll */}                                            <ScrollArea className="h-[300px] p-3">
                                               {loadingComentarios[cont.valor] ? (
                                                 <div className="flex justify-center items-center h-20">
                                                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
@@ -1046,14 +1129,14 @@ export default function CursoDetallePage() {
                                               ) : comentarios[cont.valor]?.length > 0 ? (
                                                 <div className="space-y-3">
                                                   {comentarios[cont.valor].map((comentario: any, idx: number) => (
-                                                    <div key={idx} className="border-l-4 border-blue-200 pl-3 py-2 bg-gray-50 rounded">
-                                                      <div className="flex items-center gap-2 mb-1">
-                                                        <span className="font-medium text-sm text-blue-700">{comentario.autor || comentario.nombreUsuario}</span>
+                                                    <div key={`main-${comentario.id || comentario.epochMillis || idx}-${cont.valor}`} className="border-l-4 border-blue-200 pl-3 py-2 bg-gray-50 rounded">
+                                                      <div className="flex justify-between items-start">
+                                                        <span className="font-medium text-gray-800">{comentario.autor || comentario.nombreUsuario}</span>
                                                         <span className="text-xs text-gray-500">
-                                                          {new Date(comentario.fecha).toLocaleDateString()} - {new Date(comentario.fecha).toLocaleTimeString()}
+                                                          {comentario.fechaFormateada || comentario.fecha || 'Sin fecha'} - {comentario.horaFormateada || 'Sin hora'}
                                                         </span>
                                                       </div>
-                                                      <p className="text-sm text-gray-700">{comentario.texto}</p>
+                                                      <p className="text-gray-700">{comentario.texto}</p>
                                                     </div>
                                                   ))}
                                                 </div>
@@ -1098,13 +1181,15 @@ export default function CursoDetallePage() {
                                                   {enviandoComentario[cont.valor] ? 'Enviando...' : 'Enviar'}
                                                 </Button>
                                               </div>
-                                            </div>
-                                          </div>
-                                        )}</div>
+                                            </div>                                          </div>
+                                        )}
+                                      </div>
                                     ))}
                                   </div>
                                 </div>
-                              )}                              {/* Subsecciones del contenido */}
+                              )}
+
+                              {/* Subsecciones del contenido */}
                               {seccion.subsecciones && Array.isArray(seccion.subsecciones) && seccion.subsecciones.length > 0 && (
                                 <div className="mt-4">
                                   <h4 className="font-medium text-base mb-3 text-gray-800">Subsecciones:</h4>
@@ -1166,22 +1251,21 @@ export default function CursoDetallePage() {
                                                         </div>
                                                         
                                                         {/* Área de comentarios con scroll */}
-                                                        <ScrollArea className="h-[250px] p-3">
-                                                          {loadingComentarios[cont.valor] ? (
+                                                        <ScrollArea className="h-[250px] p-3">                                                          {loadingComentarios[cont.valor] ? (
                                                             <div className="flex justify-center items-center h-20">
                                                               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                                                             </div>
                                                           ) : comentarios[cont.valor]?.length > 0 ? (
                                                             <div className="space-y-3">
                                                               {comentarios[cont.valor].map((comentario: any, idx: number) => (
-                                                                <div key={idx} className="border-l-4 border-blue-200 pl-3 py-2 bg-gray-50 rounded">
-                                                                  <div className="flex items-center gap-2 mb-1">
-                                                                    <span className="font-medium text-sm text-blue-700">{comentario.autor || comentario.nombreUsuario}</span>
+                                                                <div key={`sub-${comentario.id || comentario.epochMillis || idx}-${cont.valor}`} className="border-l-4 border-blue-200 pl-3 py-2 bg-gray-50 rounded">
+                                                                  <div className="flex justify-between items-start">
+                                                                    <span className="font-medium text-gray-800">{comentario.autor || comentario.nombreUsuario}</span>
                                                                     <span className="text-xs text-gray-500">
-                                                                      {new Date(comentario.fecha).toLocaleDateString()} - {new Date(comentario.fecha).toLocaleTimeString()}
+                                                                      {comentario.fechaFormateada || comentario.fecha || 'Sin fecha'} - {comentario.horaFormateada || 'Sin hora'}
                                                                     </span>
                                                                   </div>
-                                                                  <p className="text-sm text-gray-700">{comentario.texto}</p>
+                                                                  <p className="text-gray-700">{comentario.texto}</p>
                                                                 </div>
                                                               ))}
                                                             </div>
@@ -1331,180 +1415,9 @@ export default function CursoDetallePage() {
                             );
                           })}
                         </div>
-                      )}                    </ScrollArea>
+                      )}                    
+                      </ScrollArea>
                   </TabsContent>
-
-                  <TabsContent value="consultas" className="mt-4">
-                    <ScrollArea className="h-[60vh] w-full pr-2">
-                      {/* Botón para nueva consulta - solo para estudiantes */}
-                      {user && curso && user.nombreUsuario !== curso.nombreUsuarioDocente && (
-                        <div className="mb-4">
-                          {!mostrarFormConsulta ? (
-                            <Button 
-                              onClick={() => setMostrarFormConsulta(true)}
-                              className="w-full"
-                            >
-                              <Plus className="w-4 h-4 mr-2" />
-                              Nueva Consulta
-                            </Button>
-                          ) : (
-                            <Card>
-                              <CardHeader>
-                                <CardTitle className="text-lg">Nueva Consulta</CardTitle>
-                              </CardHeader>
-                              <CardContent className="space-y-4">
-                                <div>
-                                  <label className="text-sm font-medium">Título</label>
-                                  <Input
-                                    value={nuevaConsulta.titulo}
-                                    onChange={(e) => setNuevaConsulta(prev => ({
-                                      ...prev,
-                                      titulo: e.target.value
-                                    }))}
-                                    placeholder="Escribe el título de tu consulta..."
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-sm font-medium">Mensaje</label>
-                                  <Textarea
-                                    value={nuevaConsulta.mensaje}
-                                    onChange={(e) => setNuevaConsulta(prev => ({
-                                      ...prev,
-                                      mensaje: e.target.value
-                                    }))}
-                                    placeholder="Describe tu duda o consulta..."
-                                    rows={4}
-                                  />
-                                </div>
-                                <div className="flex gap-2">                                  <Button 
-                                    onClick={crearConsulta}
-                                    disabled={!nuevaConsulta.titulo.trim() || !nuevaConsulta.mensaje.trim() || enviandoConsulta}
-                                  >
-                                    <Send className="w-4 h-4 mr-2" />
-                                    {enviandoConsulta ? 'Enviando...' : 'Enviar Consulta'}
-                                  </Button>
-                                  <Button 
-                                    variant="outline"
-                                    onClick={() => {
-                                      setMostrarFormConsulta(false);
-                                      setNuevaConsulta({ titulo: '', mensaje: '' });
-                                    }}
-                                  >
-                                    Cancelar
-                                  </Button>
-                                </div>
-                              </CardContent>
-                            </Card>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Lista de consultas */}
-                      {loadingConsultas ? (
-                        <div className="space-y-4">
-                          {[...Array(3)].map((_, i) => (
-                            <Card key={i}>
-                              <CardContent className="p-4">
-                                <Skeleton className="h-4 w-3/4 mb-2" />
-                                <Skeleton className="h-3 w-1/2 mb-2" />
-                                <Skeleton className="h-16 w-full" />
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-                      ) : consultas.length === 0 ? (
-                        <div className="text-center py-8">
-                          <MessageSquare className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                          <h3 className="text-lg font-medium text-gray-600 mb-2">No hay consultas</h3>
-                          <p className="text-gray-500">
-                            {user && curso && user.nombreUsuario !== curso.nombreUsuarioDocente 
-                              ? "¡Sé el primero en hacer una consulta!"
-                              : "Aún no hay consultas de los estudiantes."}
-                          </p>
-                        </div>                      ) : (
-                        <div className="space-y-4">
-                          {/* Deduplicar consultas por ID para evitar claves duplicadas */}
-                          {Array.from(new Map(consultas.map(consulta => [consulta.id, consulta])).values()).map((consulta: any) => (
-                            <Card key={consulta.id}>
-                              <CardHeader>
-                                <div className="flex justify-between items-start">
-                                  <div>
-                                    <CardTitle className="text-lg">{consulta.titulo}</CardTitle>
-                                    <p className="text-sm text-gray-600 mt-1">
-                                      Por: {consulta.nombreEstudiante} • {formatNeo4jDate(consulta.fechaCreacion)}
-                                    </p>
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    {consulta.estado === 'pendiente' ? (
-                                      <Badge variant="secondary">
-                                        <Clock className="w-3 h-3 mr-1" />
-                                        Pendiente
-                                      </Badge>
-                                    ) : (
-                                      <Badge variant="default">
-                                        <CheckCircle className="w-3 h-3 mr-1" />
-                                        Respondida
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </div>
-                              </CardHeader>
-                              <CardContent>
-                                <p className="text-gray-700 mb-4">{consulta.mensaje}</p>
-                                
-                                {/* Respuesta existente */}
-                                {consulta.respuesta && (
-                                  <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-4">
-                                    <div className="flex items-center gap-2 mb-2">
-                                      <strong className="text-blue-700">Respuesta del docente:</strong>
-                                      <span className="text-sm text-blue-600">
-                                        {formatNeo4jDate(consulta.respuesta.fechaRespuesta)}
-                                      </span>
-                                    </div>
-                                    <p className="text-blue-800">{consulta.respuesta.mensaje}</p>
-                                  </div>
-                                )}
-
-                                {/* Formulario para responder (solo docentes) */}
-                                {user && curso && user.nombreUsuario === curso.nombreUsuarioDocente && !consulta.respuesta && (
-                                  <div className="border-t pt-4">
-                                    <label className="text-sm font-medium mb-2 block">Responder consulta:</label>
-                                    <div className="flex gap-2">
-                                      <Textarea
-                                        value={respuestaConsulta[consulta.id] || ''}
-                                        onChange={(e) => setRespuestaConsulta(prev => ({
-                                          ...prev,
-                                          [consulta.id]: e.target.value
-                                        }))}
-                                        placeholder="Escribe tu respuesta..."
-                                        rows={3}
-                                        className="flex-1"
-                                      />
-                                      <Button
-                                        onClick={() => responderConsulta(consulta.id)}
-                                        disabled={!respuestaConsulta[consulta.id]?.trim() || loadingRespuestaConsulta[consulta.id]}
-                                        size="sm"
-                                      >
-                                        {loadingRespuestaConsulta[consulta.id] ? (
-                                          'Enviando...'
-                                        ) : (
-                                          <>
-                                            <Send className="w-4 h-4 mr-1" />
-                                            Responder
-                                          </>
-                                        )}
-                                      </Button>
-                                    </div>
-                                  </div>
-                                )}
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-                      )}
-                    </ScrollArea>
-                  </TabsContent>
-
                   <TabsContent value="estudiantes" className="mt-4">
                     <ScrollArea className="h-[60vh] w-full pr-2">
                       {loadingEstudiantes ? (
