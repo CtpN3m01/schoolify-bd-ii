@@ -6,9 +6,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const driver = connectNeo4j();
   const session = driver.session();
 
-  try {    if (req.method === 'POST') {
-      // Crear nueva sección de comentarios
+  try {    if (req.method === 'POST') {      // Crear nueva sección de comentarios
       const { seccionId, cursoId, titulo, docenteId } = req.body;
+
+      console.log('Recibido en gestionar-secciones-comentarios:', { seccionId, cursoId, titulo, docenteId });
 
       if (!seccionId || !cursoId || !titulo || !docenteId) {
         return res.status(400).json({          error: 'seccionId, cursoId, titulo y docenteId son requeridos' 
@@ -21,14 +22,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         ON CREATE SET u._id = $docenteId, u.fechaCreacion = datetime(), u.rol = 'docente'
       `, { docenteId });      // Obtener datos del curso desde MongoDB
       let cursoData = null;
-      
-      try {
+        try {
         const mongoClient = await connectMongoDB();
-        const db = mongoClient.db('schoolify');
+        const db = mongoClient.db('ProyectoIBasesII');
         const cursosCollection = db.collection('Cursos');
         const { ObjectId } = require('mongodb');
+          console.log('Buscando curso con ID:', cursoId, 'tipo:', typeof cursoId);
         
-        cursoData = await cursosCollection.findOne({ _id: new ObjectId(cursoId) });
+        // Verificar si el cursoId es válido para ObjectId
+        if (!ObjectId.isValid(cursoId)) {
+          console.log('ID de curso no válido para ObjectId:', cursoId);
+          return res.status(400).json({ 
+            error: 'ID de curso no válido. Debe ser un ObjectId válido de MongoDB.' 
+          });
+        }
+          // Debug: Verificar qué cursos existen en la base de datos
+        const allCursos = await cursosCollection.find({}).limit(5).toArray();
+        console.log('Primeros 5 cursos en MongoDB:', allCursos.map((c: any) => ({ _id: c._id.toString(), nombre: c.nombreCurso })));
+        
+        const objectId = new ObjectId(cursoId);
+        console.log('ObjectId creado:', objectId.toString());
+        
+        cursoData = await cursosCollection.findOne({ _id: objectId });
+        
+        console.log('Resultado de búsqueda en MongoDB:', cursoData ? 'Curso encontrado' : 'Curso no encontrado');
+        
+        if (cursoData) {
+          console.log('Curso encontrado:', { _id: cursoData._id.toString(), nombre: cursoData.nombreCurso });
+        }
         
         if (!cursoData) {
           return res.status(404).json({ 

@@ -437,19 +437,64 @@ export default function Cursos() {
   // Estados para comentarios
   const [comentarios, setComentarios] = useState<{ [seccionId: string]: any[] }>({});
   const [loadingComentarios, setLoadingComentarios] = useState<{ [seccionId: string]: boolean }>({});
-  const [nuevoComentario, setNuevoComentario] = useState<{ [seccionId: string]: string }>({});
-
-  // Función para cargar comentarios de una sección
+  const [nuevoComentario, setNuevoComentario] = useState<{ [seccionId: string]: string }>({});  // Función para cargar comentarios de una sección
   const cargarComentarios = async (seccionId: string) => {
     if (!selectedCurso) return;
     
     setLoadingComentarios(prev => ({ ...prev, [seccionId]: true }));
     try {
-      const res = await fetch(`/api/neo4jDB/comentarios-seccion?seccionId=${seccionId}&cursoId=${selectedCurso.id || selectedCurso._id}`);
+      const res = await fetch(`/api/neo4jDB/comentarios-seccion?seccionId=${seccionId}&cursoId=${selectedCurso._id}`);
       const data = await res.json();
       
       if (res.ok) {
-        setComentarios(prev => ({ ...prev, [seccionId]: data.comentarios || [] }));
+        // Procesar comentarios para arreglar las fechas - mantener tanto fecha como hora
+        const comentariosProcesados = (data.comentarios || []).map((comentario: any) => {
+          // Crear una fecha válida - usar la fecha del comentario o la fecha actual
+          let fechaValida = new Date();
+          
+          // Intentar parsear la fecha del comentario si existe
+          if (comentario.fecha) {
+            const fechaParsed = new Date(comentario.fecha);
+            if (!isNaN(fechaParsed.getTime())) {
+              fechaValida = fechaParsed;
+            }
+          }
+            return {
+            ...comentario,
+            fechaCompleta: fechaValida,
+            fechaFormateada: fechaValida.toLocaleDateString('es-ES'),
+            horaFormateada: fechaValida.toLocaleTimeString('es-ES'),
+            epochMillis: comentario.epochMillis || fechaValida.getTime(),
+            // Obtener el autor correcto - nunca mostrar ObjectId
+            autor: (() => {
+              if (comentario.autor && typeof comentario.autor === 'string' && comentario.autor.length < 50 && !comentario.autor.match(/^[0-9a-f]{24}$/i)) {
+                return comentario.autor;
+              } else if (comentario.nombreUsuario && typeof comentario.nombreUsuario === 'string') {
+                return comentario.nombreUsuario;
+              } else if (comentario.autorEmail && typeof comentario.autorEmail === 'string') {
+                return comentario.autorEmail;
+              }
+              return 'Usuario anónimo';
+            })()
+          };
+        });
+        
+        // Deduplicar comentarios por ID o por combinación de autor+texto+fecha
+        const comentariosUnicos = comentariosProcesados.filter((comentario: any, index: number, array: any[]) => {
+          if (comentario.id) {
+            // Si tiene ID, usar ID para deduplicar
+            return array.findIndex((c: any) => c.id === comentario.id) === index;
+          } else {
+            // Si no tiene ID, usar combinación de autor+texto+epochMillis
+            return array.findIndex((c: any) => 
+              c.autor === comentario.autor && 
+              c.texto === comentario.texto && 
+              Math.abs((c.epochMillis || 0) - (comentario.epochMillis || 0)) < 1000 // mismo comentario si está dentro de 1 segundo
+            ) === index;
+          }
+        });
+        
+        setComentarios(prev => ({ ...prev, [seccionId]: comentariosUnicos }));
       } else {
         console.error('Error al cargar comentarios:', data.error);
         setComentarios(prev => ({ ...prev, [seccionId]: [] }));
@@ -461,28 +506,85 @@ export default function Cursos() {
       setLoadingComentarios(prev => ({ ...prev, [seccionId]: false }));
     }
   };
-
   // Función para agregar un comentario
   const agregarComentario = async (seccionId: string) => {
     const texto = nuevoComentario[seccionId]?.trim();
     if (!texto || !user || !selectedCurso) return;
 
-    try {
-      const res = await fetch('/api/neo4jDB/agregar-comentario', {
+    try {      const res = await fetch('/api/neo4jDB/agregar-comentario', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },        body: JSON.stringify({
           seccionId,
-          cursoId: selectedCurso.id || selectedCurso._id,
+          cursoId: selectedCurso._id,
           usuarioId: user._id || user.nombreUsuario, // Usar nombreUsuario como fallback
           texto
         })
       });
 
       if (res.ok) {
-        // Recargar comentarios
-        await cargarComentarios(seccionId);
+        const data = await res.json();
+        const nuevoComentarioData = data.comentario;
+        
         // Limpiar input
         setNuevoComentario(prev => ({ ...prev, [seccionId]: '' }));
+        
+        // En lugar de recargar todos los comentarios, añadir solo el nuevo comentario al final
+        // para evitar duplicaciones
+        if (nuevoComentarioData) {
+          // Crear una fecha válida - usar la fecha del comentario o la fecha actual
+          let fechaValida = new Date();
+          
+          // Intentar parsear la fecha del comentario si existe
+          if (nuevoComentarioData.fecha) {
+            const fechaParsed = new Date(nuevoComentarioData.fecha);
+            if (!isNaN(fechaParsed.getTime())) {
+              fechaValida = fechaParsed;
+            }
+          }
+            const comentarioProcesado = {
+            ...nuevoComentarioData,
+            fechaCompleta: fechaValida,
+            fechaFormateada: fechaValida.toLocaleDateString('es-ES'),
+            horaFormateada: fechaValida.toLocaleTimeString('es-ES'),
+            epochMillis: nuevoComentarioData.epochMillis || fechaValida.getTime(),
+            // Obtener el autor correcto - nunca mostrar ObjectId
+            autor: (() => {
+              if (nuevoComentarioData.autor && typeof nuevoComentarioData.autor === 'string' && nuevoComentarioData.autor.length < 50 && !nuevoComentarioData.autor.match(/^[0-9a-f]{24}$/i)) {
+                return nuevoComentarioData.autor;
+              } else if (nuevoComentarioData.nombreUsuario && typeof nuevoComentarioData.nombreUsuario === 'string') {
+                return nuevoComentarioData.nombreUsuario;
+              } else if (nuevoComentarioData.autorEmail && typeof nuevoComentarioData.autorEmail === 'string') {
+                return nuevoComentarioData.autorEmail;              } else if (user?.nombreUsuario) {
+                return user.nombreUsuario;
+              }
+              return 'Usuario anónimo';
+            })()
+          };
+          
+          setComentarios(prev => {
+            const comentariosActuales = prev[seccionId] || [];
+            // Verificar que no existe ya este comentario (por ID o por contenido similar)
+            const yaExiste = comentariosActuales.some((c: any) => {
+              if (c.id && comentarioProcesado.id) {
+                return c.id === comentarioProcesado.id;
+              }
+              return c.autor === comentarioProcesado.autor && 
+                     c.texto === comentarioProcesado.texto && 
+                     Math.abs((c.epochMillis || 0) - (comentarioProcesado.epochMillis || 0)) < 2000;
+            });
+            
+            if (!yaExiste) {
+              return {
+                ...prev,
+                [seccionId]: [...comentariosActuales, comentarioProcesado]
+              };
+            }
+            return prev; // No añadir si ya existe
+          });
+        } else {
+          // Si no se devolvió el comentario en la respuesta, recargar todos
+          await cargarComentarios(seccionId);
+        }
       } else {
         const data = await res.json();
         console.error('Error al agregar comentario:', data.error);
@@ -495,11 +597,14 @@ export default function Cursos() {
     if (!user || !selectedCurso) return;
 
     try {
+      const cursoId = selectedCurso._id; // Usar solo _id de MongoDB
+      console.log('Creando sección de comentarios para curso:', cursoId, 'selectedCurso:', selectedCurso);
+      
       const res = await fetch('/api/neo4jDB/gestionar-secciones-comentarios', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },        body: JSON.stringify({
           seccionId,
-          cursoId: selectedCurso.id || selectedCurso._id,
+          cursoId,
           titulo,
           docenteId: user._id || user.nombreUsuario // Usar nombreUsuario como fallback
         })
@@ -920,8 +1025,19 @@ export default function Cursos() {
                                   )}                                  {cont.tipo === 'comentarios' && (
                                     <div className="w-full border rounded-lg bg-white">
                                       <div className="p-3 border-b bg-gray-50">
-                                        <h4 className="font-medium text-gray-800">💬 {cont.titulo}</h4>
-                                        <p className="text-sm text-gray-600">Los estudiantes pueden comentar aquí</p>
+                                        <div className="flex items-center justify-between">
+                                          <div>
+                                            <h4 className="font-medium text-gray-800">💬 {cont.titulo}</h4>
+                                            <p className="text-sm text-gray-600">Los estudiantes pueden comentar aquí</p>
+                                          </div>
+                                          <button
+                                            onClick={() => cargarComentarios(cont.valor)}
+                                            className="text-sm text-blue-600 hover:text-blue-800 px-3 py-1 rounded border border-blue-300 bg-white hover:bg-blue-50 transition-colors"
+                                            title="Recargar comentarios"
+                                          >
+                                            🔄 Recargar
+                                          </button>
+                                        </div>
                                       </div>
                                       
                                       {/* Área de comentarios con scroll */}
@@ -937,7 +1053,7 @@ export default function Cursos() {
                                                 <div className="flex items-center gap-2 mb-1">
                                                   <span className="font-medium text-sm text-blue-700">{comentario.autor}</span>
                                                   <span className="text-xs text-gray-500">
-                                                    {new Date(comentario.fecha).toLocaleDateString()} - {new Date(comentario.fecha).toLocaleTimeString()}
+                                                    {comentario.fechaFormateada} - {comentario.horaFormateada}
                                                   </span>
                                                 </div>
                                                 <p className="text-sm text-gray-700">{comentario.texto}</p>
@@ -1103,12 +1219,22 @@ export default function Cursos() {
                                                   <a href={cont.valor} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline break-all block max-w-full border rounded px-2 py-1 bg-white hover:bg-gray-100 transition">Ver documento</a>
                                                   <a href={cont.valor} download className="text-blue-600 underline text-xs mt-1" target="_blank" rel="noopener noreferrer">Descargar documento</a>
                                                 </>
-                                              )}
-                                              {cont.tipo === 'comentarios' && (
+                                              )}                                              {cont.tipo === 'comentarios' && (
                                                 <div className="w-full border rounded-lg bg-white">
                                                   <div className="p-3 border-b bg-gray-50">
-                                                    <h4 className="font-medium text-gray-800">💬 Sección de Comentarios</h4>
-                                                    <p className="text-sm text-gray-600">Los estudiantes pueden comentar aquí</p>
+                                                    <div className="flex items-center justify-between">
+                                                      <div>
+                                                        <h4 className="font-medium text-gray-800">💬 Sección de Comentarios</h4>
+                                                        <p className="text-sm text-gray-600">Los estudiantes pueden comentar aquí</p>
+                                                      </div>
+                                                      <button
+                                                        onClick={() => cargarComentarios(cont.valor)}
+                                                        className="text-sm text-blue-600 hover:text-blue-800 px-3 py-1 rounded border border-blue-300 bg-white hover:bg-blue-50 transition-colors"
+                                                        title="Recargar comentarios"
+                                                      >
+                                                        🔄 Recargar
+                                                      </button>
+                                                    </div>
                                                   </div>
                                                   
                                                   {/* Área de comentarios con scroll */}
@@ -1124,7 +1250,7 @@ export default function Cursos() {
                                                             <div className="flex items-center gap-2 mb-1">
                                                               <span className="font-medium text-sm text-blue-700">{comentario.autor}</span>
                                                               <span className="text-xs text-gray-500">
-                                                                {new Date(comentario.fecha).toLocaleDateString()} - {new Date(comentario.fecha).toLocaleTimeString()}
+                                                                {comentario.fechaFormateada} - {comentario.horaFormateada}
                                                               </span>
                                                             </div>
                                                             <p className="text-sm text-gray-700">{comentario.texto}</p>

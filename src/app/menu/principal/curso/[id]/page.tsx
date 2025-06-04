@@ -188,37 +188,84 @@ export default function CursoDetallePage() {
           // Crear una fecha válida - usar la fecha del comentario o la fecha actual
           let fechaValida = new Date();
           
+          console.log('=== PROCESANDO COMENTARIO ===');
+          console.log('Comentario completo:', comentario);
+          console.log('Campo fecha original:', comentario.fecha);
+          console.log('Tipo de fecha:', typeof comentario.fecha);
+          console.log('EpochMillis:', comentario.epochMillis);
+          
           // Intentar parsear la fecha del comentario si existe
           if (comentario.fecha) {
             const fechaParsed = new Date(comentario.fecha);
             if (!isNaN(fechaParsed.getTime())) {
               fechaValida = fechaParsed;
+              console.log('Usando fecha parseada:', fechaValida);
+            } else {
+              console.log('Fecha no válida, intentando con epochMillis...');
+              if (comentario.epochMillis) {
+                fechaValida = new Date(comentario.epochMillis);
+                console.log('Usando epochMillis:', fechaValida);
+              }
             }
+          } else if (comentario.epochMillis) {
+            fechaValida = new Date(comentario.epochMillis);
+            console.log('Usando solo epochMillis:', fechaValida);
           }
+          
+          // Si ya vienen formateadas desde el API, usarlas
+          const fechaFormateada = comentario.fechaFormateada || fechaValida.toLocaleDateString('es-ES');
+          const horaFormateada = comentario.horaFormateada || fechaValida.toLocaleTimeString('es-ES');
+          
+          // Obtener el autor correcto - nunca mostrar ObjectId
+          let autorNombre = 'Usuario anónimo';
+          if (comentario.autor && typeof comentario.autor === 'string' && comentario.autor.length < 50 && !comentario.autor.match(/^[0-9a-f]{24}$/i)) {
+            autorNombre = comentario.autor;
+          } else if (comentario.nombreUsuario && typeof comentario.nombreUsuario === 'string') {
+            autorNombre = comentario.nombreUsuario;
+          } else if (comentario.autorEmail && typeof comentario.autorEmail === 'string') {
+            autorNombre = comentario.autorEmail;
+          }
+          
+          console.log('Resultado final - Fecha:', fechaFormateada, 'Hora:', horaFormateada, 'Autor:', autorNombre);
           
           return {
             ...comentario,
+            autor: autorNombre, // Usar el autor corregido
             fechaCompleta: fechaValida,
-            fechaFormateada: fechaValida.toLocaleDateString('es-ES'),
-            horaFormateada: fechaValida.toLocaleTimeString('es-ES'),
+            fechaFormateada,
+            horaFormateada,
             epochMillis: comentario.epochMillis || fechaValida.getTime()
           };
-        });
-
-        // Deduplicar comentarios por ID o por combinación de autor+texto+fecha
-        const comentariosUnicos = comentariosProcesados.filter((comentario: any, index: number, array: any[]) => {
+        });// Deduplicar comentarios por ID de manera más estricta
+        const comentariosUnicos = comentariosProcesados.reduce((acc: any[], comentario: any) => {
+          // Primero, verificar si ya existe por ID (más confiable)
           if (comentario.id) {
-            // Si tiene ID, usar ID para deduplicar
-            return array.findIndex((c: any) => c.id === comentario.id) === index;
-          } else {
-            // Si no tiene ID, usar combinación de autor+texto+epochMillis
-            return array.findIndex((c: any) => 
-              c.autor === comentario.autor && 
-              c.texto === comentario.texto && 
-              Math.abs((c.epochMillis || 0) - (comentario.epochMillis || 0)) < 1000 // mismo comentario si está dentro de 1 segundo
-            ) === index;
+            const existePorId = acc.find(c => c.id === comentario.id);
+            if (existePorId) {
+              console.log('Comentario duplicado encontrado por ID:', comentario.id);
+              return acc; // No agregar si ya existe
+            }
           }
-        });
+          
+          // Como backup, verificar por contenido + autor + tiempo aproximado
+          const existePorContenido = acc.find(c => 
+            c.texto === comentario.texto && 
+            (c.autor === comentario.autor || c.autorId === comentario.autorId) &&
+            Math.abs((c.epochMillis || 0) - (comentario.epochMillis || 0)) < 2000
+          );
+          
+          if (existePorContenido) {
+            console.log('Comentario duplicado encontrado por contenido:', {
+              texto: comentario.texto.substring(0, 20) + '...',
+              autor: comentario.autor || comentario.autorId
+            });
+            return acc; // No agregar si ya existe
+          }
+          
+          // Si no existe, agregarlo
+          acc.push(comentario);
+          return acc;
+        }, []);
         
         console.log('Comentarios procesados:', comentariosUnicos);
         setComentarios(prev => ({ ...prev, [seccionId]: comentariosUnicos }));
@@ -283,9 +330,15 @@ export default function CursoDetallePage() {
         console.log('Tipo de fecha:', typeof nuevoComentario?.fecha);
         
         // Limpiar el input
-        setNuevoComentario(prev => ({ ...prev, [seccionId]: '' }));// En lugar de recargar todos los comentarios, añadir solo el nuevo comentario al final
+        setNuevoComentario(prev => ({ ...prev, [seccionId]: '' }));        // En lugar de recargar todos los comentarios, añadir solo el nuevo comentario al final
         // para evitar duplicaciones
         if (nuevoComentario) {
+          console.log('=== PROCESANDO NUEVO COMENTARIO ===');
+          console.log('Comentario recibido del API:', nuevoComentario);
+          console.log('Fecha original:', nuevoComentario.fecha);
+          console.log('FechaFormateada del API:', nuevoComentario.fechaFormateada);
+          console.log('HoraFormateada del API:', nuevoComentario.horaFormateada);
+          
           // Crear una fecha válida - usar la fecha del comentario o la fecha actual
           let fechaValida = new Date();
           
@@ -294,36 +347,71 @@ export default function CursoDetallePage() {
             const fechaParsed = new Date(nuevoComentario.fecha);
             if (!isNaN(fechaParsed.getTime())) {
               fechaValida = fechaParsed;
+            } else if (nuevoComentario.epochMillis) {
+              fechaValida = new Date(nuevoComentario.epochMillis);
             }
+          } else if (nuevoComentario.epochMillis) {
+            fechaValida = new Date(nuevoComentario.epochMillis);
+          }
+            // Usar las fechas ya formateadas del API si están disponibles, si no formatear aquí
+          const fechaFormateada = nuevoComentario.fechaFormateada || fechaValida.toLocaleDateString('es-ES');
+          const horaFormateada = nuevoComentario.horaFormateada || fechaValida.toLocaleTimeString('es-ES');
+          
+          // Obtener el autor correcto - nunca mostrar ObjectId
+          let autorNombre = 'Usuario anónimo';
+          if (nuevoComentario.autor && typeof nuevoComentario.autor === 'string' && nuevoComentario.autor.length < 50 && !nuevoComentario.autor.match(/^[0-9a-f]{24}$/i)) {
+            autorNombre = nuevoComentario.autor;
+          } else if (nuevoComentario.nombreUsuario && typeof nuevoComentario.nombreUsuario === 'string') {
+            autorNombre = nuevoComentario.nombreUsuario;
+          } else if (nuevoComentario.autorEmail && typeof nuevoComentario.autorEmail === 'string') {
+            autorNombre = nuevoComentario.autorEmail;          } else if (user?.nombreUsuario) {
+            autorNombre = user.nombreUsuario;
           }
           
           const comentarioProcesado = {
             ...nuevoComentario,
+            autor: autorNombre, // Usar el autor corregido
             fechaCompleta: fechaValida,
-            fechaFormateada: fechaValida.toLocaleDateString('es-ES'),
-            horaFormateada: fechaValida.toLocaleTimeString('es-ES'),
+            fechaFormateada,
+            horaFormateada,
             epochMillis: nuevoComentario.epochMillis || fechaValida.getTime()
           };
           
-          setComentarios(prev => {
+          console.log('Comentario procesado final:', comentarioProcesado);
+            setComentarios(prev => {
             const comentariosActuales = prev[seccionId] || [];
-            // Verificar que no existe ya este comentario (por ID o por contenido similar)
-            const yaExiste = comentariosActuales.some((c: any) => {
-              if (c.id && comentarioProcesado.id) {
-                return c.id === comentarioProcesado.id;
-              }
-              return c.autor === comentarioProcesado.autor && 
-                     c.texto === comentarioProcesado.texto && 
-                     Math.abs((c.epochMillis || 0) - (comentarioProcesado.epochMillis || 0)) < 2000;
-            });
             
-            if (!yaExiste) {
-              return {
-                ...prev,
-                [seccionId]: [...comentariosActuales, comentarioProcesado]
-              };
+            // Verificar duplicados de manera más estricta
+            // Primero por ID
+            if (comentarioProcesado.id) {
+              const existePorId = comentariosActuales.find(c => c.id === comentarioProcesado.id);
+              if (existePorId) {
+                console.log('Comentario ya existe por ID, no agregando:', comentarioProcesado.id);
+                return prev;
+              }
             }
-            return prev; // No añadir si ya existe
+            
+            // Como backup, verificar por contenido + autor + tiempo
+            const existePorContenido = comentariosActuales.find(c => 
+              c.texto === comentarioProcesado.texto && 
+              (c.autor === comentarioProcesado.autor || c.autorId === comentarioProcesado.autorId) &&
+              Math.abs((c.epochMillis || 0) - (comentarioProcesado.epochMillis || 0)) < 3000
+            );
+            
+            if (existePorContenido) {
+              console.log('Comentario ya existe por contenido, no agregando:', {
+                texto: comentarioProcesado.texto.substring(0, 20) + '...',
+                autor: comentarioProcesado.autor || comentarioProcesado.autorId
+              });
+              return prev;
+            }
+            
+            // Si no existe, agregarlo
+            console.log('Agregando nuevo comentario:', comentarioProcesado);
+            return {
+              ...prev,
+              [seccionId]: [...comentariosActuales, comentarioProcesado]
+            };
           });
         } else {
           // Si no se devolvió el comentario en la respuesta, recargar todos
@@ -694,6 +782,16 @@ export default function CursoDetallePage() {
     }
   }, [curso, activeTab, cargarConsultas]);
 
+  // Helper function para obtener el nombre de usuario correcto
+  const obtenerNombreUsuario = (comentario: any) => {
+    const autor = comentario.autor || comentario.nombreUsuario;
+    // Si el autor parece ser un ObjectId (24 caracteres hexadecimales), usar otros campos como fallback
+    if (autor && autor.length === 24 && /^[0-9a-fA-F]{24}$/.test(autor)) {
+      return comentario.nombreUsuario || comentario.autorEmail || 'Usuario desconocido';
+    }
+    return autor || comentario.autorEmail || 'Usuario desconocido';
+  };
+
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-6">
@@ -963,17 +1061,17 @@ export default function CursoDetallePage() {
                                                                 <a href={cont.valor} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline text-xs">
                                                                   Ver documento
                                                                 </a>
-                                                              </div>                                                            )}
-                                                            {cont.tipo === 'comentarios' && (
+                                                              </div>                                                            )}                                                            {cont.tipo === 'comentarios' && (
                                                               <div className="mt-1">
                                                                 <div className="bg-blue-50 border border-blue-200 rounded p-2">
                                                                   <div className="flex items-center justify-between mb-2">
                                                                     <h5 className="font-medium text-blue-800 text-xs">💬 {cont.titulo || 'Comentarios'}</h5>
                                                                     <button
                                                                       onClick={() => cargarComentarios(cont.valor)}
-                                                                      className="text-xs text-blue-600 hover:text-blue-800"
+                                                                      className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1 rounded border border-blue-300 bg-white hover:bg-blue-50 transition-colors"
+                                                                      title="Recargar comentarios"
                                                                     >
-                                                                      {comentarios[cont.valor] ? 'Actualizar' : 'Cargar'}
+                                                                      🔄 Recargar
                                                                     </button>
                                                                   </div>
                                                                   
@@ -1113,12 +1211,22 @@ export default function CursoDetallePage() {
                                               Ver documento
                                             </a>
                                           </div>
-                                        )}
-                                        {cont.tipo === 'comentarios' && (
+                                        )}                                        {cont.tipo === 'comentarios' && (
                                           <div className="w-full border rounded-lg bg-white mt-2">
                                             <div className="p-3 border-b bg-gray-50">
-                                              <h4 className="font-medium text-gray-800">💬 {cont.titulo}</h4>
-                                              <p className="text-sm text-gray-600">Participa en la discusión</p>
+                                              <div className="flex items-center justify-between">
+                                                <div>
+                                                  <h4 className="font-medium text-gray-800">💬 {cont.titulo}</h4>
+                                                  <p className="text-sm text-gray-600">Participa en la discusión</p>
+                                                </div>
+                                                <button
+                                                  onClick={() => cargarComentarios(cont.valor)}
+                                                  className="text-sm text-blue-600 hover:text-blue-800 px-3 py-1 rounded border border-blue-300 bg-white hover:bg-blue-50 transition-colors"
+                                                  title="Recargar comentarios"
+                                                >
+                                                  🔄 Recargar
+                                                </button>
+                                              </div>
                                             </div>
                                             
                                             {/* Área de comentarios con scroll */}                                            <ScrollArea className="h-[300px] p-3">
@@ -1242,16 +1350,26 @@ export default function CursoDetallePage() {
                                                           Ver documento
                                                         </a>
                                                       </div>
-                                                    )}
-                                                    {cont.tipo === 'comentarios' && (
+                                                    )}                                                    {cont.tipo === 'comentarios' && (
                                                       <div className="w-full border rounded-lg bg-white mt-2">
                                                         <div className="p-3 border-b bg-gray-50">
-                                                          <h4 className="font-medium text-gray-800">💬 {cont.titulo}</h4>
-                                                          <p className="text-sm text-gray-600">Participa en la discusión</p>
+                                                          <div className="flex items-center justify-between">
+                                                            <div>
+                                                              <h4 className="font-medium text-gray-800">💬 {cont.titulo}</h4>
+                                                              <p className="text-sm text-gray-600">Participa en la discusión</p>
+                                                            </div>
+                                                            <button
+                                                              onClick={() => cargarComentarios(cont.valor)}
+                                                              className="text-sm text-blue-600 hover:text-blue-800 px-3 py-1 rounded border border-blue-300 bg-white hover:bg-blue-50 transition-colors"
+                                                              title="Recargar comentarios"
+                                                            >
+                                                              🔄 Recargar
+                                                            </button>
+                                                          </div>
                                                         </div>
                                                         
                                                         {/* Área de comentarios con scroll */}
-                                                        <ScrollArea className="h-[250px] p-3">                                                          {loadingComentarios[cont.valor] ? (
+                                                        <ScrollArea className="h-[250px] p-3">{loadingComentarios[cont.valor] ? (
                                                             <div className="flex justify-center items-center h-20">
                                                               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                                                             </div>
